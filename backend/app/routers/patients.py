@@ -11,7 +11,7 @@ from ..epidemiology import build_radar
 from ..laboratory import extract_lab_candidates
 from ..medication_safety import check_medication_safety
 from ..models import (
-    AppointmentCreate, AppointmentStatusUpdate, ChatRequest, ClinicalProfileUpdate,
+    ChatRequest, ClinicalProfileUpdate,
     DashboardOverview, DocumentArchiveRequest, EncounterCreate, LabResultCreate, LabResultStatusUpdate,
     MedicationSafetyRequest, PatientCreate, PatientOverview, PendingRedFlag,
 )
@@ -80,29 +80,6 @@ def dashboard_red_flags(user=Depends(require_roles('doctor', 'admin'))):
         )
         for r in store.list_pending_red_flags(user.organization_id)
     ]
-
-
-@router.post('/api/appointments')
-def create_appointment(payload: AppointmentCreate, user=Depends(require_roles('doctor', 'receptionist', 'admin'))):
-    patient_or_404(user, payload.patient_id)
-    r = store.create_appointment(user.organization_id, payload)
-    store.audit(user, 'create', 'appointment', r.id, payload.reason)
-    return r
-
-
-@router.get('/api/appointments')
-def appointments(user=Depends(current_user)):
-    names = {p.id: p.full_name for p in store.list_patients(user.organization_id)}
-    return [{**a.model_dump(mode='json'), 'patient_name': names.get(a.patient_id, 'Unknown patient')} for a in store.list_appointments(user.organization_id)]
-
-
-@router.patch('/api/appointments/{appointment_id}/status')
-def appointment_status(appointment_id: str, payload: AppointmentStatusUpdate, user=Depends(require_roles('doctor', 'receptionist', 'admin'))):
-    r = store.update_appointment_status(user.organization_id, appointment_id, payload.status)
-    if not r:
-        raise HTTPException(404, 'Appointment not found')
-    store.audit(user, 'update_status', 'appointment', appointment_id, payload.status)
-    return r
 
 
 @router.post('/api/patients/{patient_id}/documents')

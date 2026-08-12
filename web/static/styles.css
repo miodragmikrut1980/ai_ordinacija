@@ -118,3 +118,70 @@ body.dark .setup-banner li{color:#d8c48f}
 body.dark .epi-banner{background:#12262e;border-color:#2a4a5a}
 body.dark .epi-head{color:#8fc6e0}
 body.dark .epi-banner p{color:#a8cdde}
+
+/* === v2.0.0: pravi kalendar ordinacije === */
+.calendar-toolbar{flex-wrap:wrap;gap:14px}
+.calendar-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.calendar-nav{display:flex;align-items:center;gap:6px}
+.calendar-nav .icon-button{width:32px;height:32px;font-size:16px}
+.calendar-view-toggle{display:flex;border:1px solid #dfe9e6;border-radius:10px;overflow:hidden}
+.cal-view-btn{border:0;background:#fff;color:#5a7a77;padding:9px 13px;font-size:12px;font-weight:700;cursor:pointer}
+.cal-view-btn.active{background:#176b5c;color:#fff}
+#calClinicianFilter{border:1px solid #d7e2df;border-radius:10px;padding:9px 11px;background:#fff;font-size:12px;max-width:180px}
+.field-error{background:#fbeaea;color:#8c2f26;border-radius:9px;padding:9px 11px;font-size:12px;margin:0}
+
+.cal-grid{display:grid;grid-template-columns:52px repeat(7,1fr);border:1px solid #e1eae8;border-radius:14px;overflow:hidden}
+.cal-corner{border-bottom:1px solid #e1eae8;border-right:1px solid #e1eae8}
+.cal-day-head{text-align:center;padding:10px 4px;font-size:11px;color:#5a7a77;border-bottom:1px solid #e1eae8;border-right:1px solid #e1eae8}
+.cal-day-head b{font-size:14px;color:#17252a}
+.cal-day-head.today{background:#eef7f4}
+.cal-time-col{border-right:1px solid #e1eae8;position:relative}
+.cal-hour-label{height:52px;font-size:10px;color:#a3b6b3;padding:3px 6px;box-sizing:border-box;border-top:1px solid #eef3f2}
+.cal-day-body{position:relative;border-right:1px solid #e1eae8;background-image:repeating-linear-gradient(to bottom,#eef3f2 0,#eef3f2 1px,transparent 1px,transparent 52px);cursor:pointer}
+.cal-block{position:absolute;left:3px;right:3px;border:0;border-radius:8px;padding:3px 6px;font-size:10.5px;font-weight:700;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer;color:#fff;background:#176b5c;box-shadow:0 2px 6px rgba(19,50,53,.18)}
+.cal-block.sched{background:#176b5c}
+.cal-block.checkedin{background:#2f9e77}
+.cal-block.done{background:#7b918e}
+.cal-block.cancelled{background:#c9d4d2;color:#5a7a77;text-decoration:line-through}
+.cal-block.noshow{background:#b34b3f}
+
+.cal-month-head{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#5a7a77;padding:8px 0;border-bottom:1px solid #e1eae8}
+.cal-month-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:96px;border:1px solid #e1eae8;border-top:0}
+.cal-month-cell{border-right:1px solid #e1eae8;border-bottom:1px solid #e1eae8;padding:6px;font-size:10px;display:flex;flex-direction:column;gap:3px;cursor:pointer;overflow:hidden}
+.cal-month-cell.outside{background:#fafcfb;color:#c3d0ce}
+.cal-month-cell.today .cal-month-daynum{background:#176b5c;color:#fff;border-radius:999px;padding:1px 6px}
+.cal-month-daynum{font-weight:700;align-self:flex-start}
+.cal-chip{border:0;border-radius:6px;padding:2px 5px;font-size:9.5px;font-weight:700;color:#fff;background:#176b5c;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer}
+.cal-chip.checkedin{background:#2f9e77}
+.cal-chip.done{background:#7b918e}
+.cal-chip.cancelled{background:#c9d4d2;color:#5a7a77}
+.cal-chip.noshow{background:#b34b3f}
+.cal-more{font-size:9px;color:#7b918e}
+
+.cal-popover{position:absolute;z-index:150;width:280px;background:#fff;border:1px solid #dfe9e6;border-radius:14px;box-shadow:0 20px 50px rgba(19,50,53,.2);padding:14px;display:grid;gap:10px}
+.cal-pop-head{display:flex;justify-content:space-between;align-items:start;gap:8px}
+.cal-pop-head strong{font-size:13px}
+.cal-pop-close{width:26px;height:26px;font-size:15px}
+.cal-popover select,.cal-popover input{width:100%;border:1px solid #d7e2df;border-radius:9px;padding:8px;font-size:12px;box-sizing:border-box}
+.cal-pop-reschedule{display:flex;gap:6px}
+.cal-pop-reschedule button{white-space:nowrap;padding:8px 10px;font-size:12px}
+
+body.dark .cal-view-btn{background:#142326;color:#a8c4c0}
+body.dark .cal-view-btn.active{background:#2f9e77;color:#0e1f21}
+body.dark #calClinicianFilter{background:#142326;border-color:#294044;color:#edf6f4}
+body.dark .cal-grid,body.dark .cal-corner,body.dark .cal-day-head,body.dark .cal-time-col,body.dark .cal-day-body,body.dark .cal-month-grid,body.dark .cal-month-cell{border-color:#294044}
+body.dark .cal-day-head{background:transparent}
+body.dark .cal-day-head.today{background:#17282b}
+body.dark .cal-hour-label{color:#5a7a77;border-color:#1d2f32}
+body.dark .cal-day-body{background-image:repeating-linear-gradient(to bottom,#1d2f32 0,#1d2f32 1px,transparent 1px,transparent 52px)}
+body.dark .cal-month-cell.outside{background:#101c1f;color:#3c4e4b}
+body.dark .cal-popover{background:#142326;border-color:#294044}
+body.dark .cal-popover select,body.dark .cal-popover input{background:#0e1f21;border-color:#355055;color:#edf6f4}
+
+@media(max-width:900px){
+.calendar-toolbar{flex-direction:column;align-items:stretch}
+.calendar-controls{justify-content:space-between}
+.cal-grid{grid-template-columns:40px repeat(7,minmax(72px,1fr));overflow-x:auto}
+.cal-month-grid{grid-auto-rows:76px}
+.cal-day-head{font-size:9px;padding:8px 2px}
+}

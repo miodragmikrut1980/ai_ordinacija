@@ -392,14 +392,41 @@
         </section>
         <section id="scheduleView" class="view hidden">
           <section class="card panel">
-            <div class="panel-head">
+            <div class="panel-head calendar-toolbar">
               <div>
                 <p class="eyebrow">TOK ORDINACIJE</p>
-                <h3>Termini</h3>
+                <h3 id="calendarRangeLabel">Kalendar</h3>
               </div>
-              <button class="button primary appointment-open">+ Termin</button>
+              <div class="calendar-controls">
+                <div class="calendar-nav">
+                  <button type="button" id="calPrev" class="icon-button" title="Prethodni period">‹</button>
+                  <button type="button" id="calToday" class="button secondary">Danas</button>
+                  <button type="button" id="calNext" class="icon-button" title="Sledeći period">›</button>
+                </div>
+                <select id="calClinicianFilter" title="Filtriraj po lekaru">
+                  <option value="">Svi lekari</option>
+                </select>
+                <div class="calendar-view-toggle" role="tablist">
+                  <button type="button" class="cal-view-btn active" data-view="week">Nedelja</button>
+                  <button type="button" class="cal-view-btn" data-view="month">Mesec</button>
+                  <button type="button" class="cal-view-btn" data-view="list">Lista</button>
+                </div>
+                <button class="button primary appointment-open">+ Termin</button>
+              </div>
             </div>
-            <div id="scheduleList" class="list"></div>
+            <div id="calendarWeek" class="calendar-week"></div>
+            <div id="calendarMonth" class="calendar-month hidden"></div>
+            <div id="scheduleList" class="list hidden"></div>
+          </section>
+          <section class="card panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">AKO NEMA SLOBODNOG TERMINA</p>
+                <h3>Lista čekanja</h3>
+              </div>
+              <button class="button secondary" id="waitlistOpen">+ Dodaj na listu</button>
+            </div>
+            <div id="waitlistList" class="list"></div>
           </section>
         </section>
         <section id="inboxView" class="view hidden">
@@ -528,11 +555,67 @@
         ><label
           >Datum i vreme<input
             name="starts_at"
+            id="appointmentStartsAt"
             type="datetime-local"
             required /></label
-        ><label>Razlog<input name="reason" required /></label
+        ><div class="form-two">
+          <label
+            >Lekar<select name="clinician_id" id="appointmentClinician">
+              <option value="">Nije dodeljen</option>
+            </select></label
+          ><label
+            >Trajanje (min)<input
+              name="duration_minutes"
+              id="appointmentDuration"
+              type="number"
+              min="5"
+              max="240"
+              step="5"
+              value="20" /></label
+        ></div>
+        <div class="form-two">
+          <label>Soba<input name="room" id="appointmentRoom" placeholder="npr. Ordinacija 1" /></label
+          ><label>Tip usluge<input name="service_type" placeholder="npr. Kontrolni pregled" /></label>
+        </div>
+        <label>Razlog<input name="reason" required /></label
         ><label>Napomena<input name="notes" /></label
-        ><button class="button primary full">Zakaži</button>
+        ><p id="appointmentConflict" class="field-error hidden"></p>
+        <button class="button primary full">Zakaži</button>
+      </form>
+    </dialog>
+    <dialog id="waitlistDialog">
+      <form id="waitlistForm">
+        <div class="dialog-head">
+          <h2>Dodaj na listu čekanja</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <label>Pacijent<select name="patient_id" id="waitlistPatient" required></select></label>
+        <label>Željena usluga<input name="desired_service" placeholder="npr. Kontrolni pregled" /></label>
+        <label
+          >Lekar (opciono)<select name="clinician_id" id="waitlistClinician">
+            <option value="">Bilo koji</option>
+          </select></label
+        ><label>Napomena<input name="preferred_note" placeholder="npr. ujutru sledeće nedelje" /></label>
+        <button class="button primary full">Dodaj na listu</button>
+      </form>
+    </dialog>
+    <dialog id="promoteDialog">
+      <form id="promoteForm">
+        <div class="dialog-head">
+          <h2>Zakaži sa liste čekanja</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <label>Datum i vreme<input name="starts_at" type="datetime-local" required /></label>
+        <div class="form-two">
+          <label
+            >Lekar<select name="clinician_id" id="promoteClinician">
+              <option value="">Nije dodeljen</option>
+            </select></label
+          ><label>Trajanje (min)<input name="duration_minutes" type="number" min="5" max="240" step="5" value="20" /></label>
+        </div>
+        <label>Soba<input name="room" placeholder="npr. Ordinacija 1" /></label>
+        <p id="promoteConflict" class="field-error hidden"></p>
+        <button class="button primary full">Potvrdi termin</button>
       </form>
     </dialog>
     <dialog id="passwordDialog">

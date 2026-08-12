@@ -128,12 +128,78 @@ class PatientCreate(BaseModel):
 
 class AppointmentRecord(BaseModel):
     id: str; organization_id: str; patient_id: str; starts_at: datetime; reason: str = Field(min_length=2, max_length=240)
-    status: Literal["scheduled", "checked_in", "completed", "cancelled"] = "scheduled"; notes: str | None = None; created_at: datetime
+    status: Literal["scheduled", "checked_in", "completed", "cancelled", "no_show"] = "scheduled"; notes: str | None = None; created_at: datetime
+    clinician_id: str | None = None
+    clinician_name: str | None = None
+    room: str | None = None
+    service_type: str | None = None
+    duration_minutes: int = 20
+    cancellation_reason: str | None = None
 
 class AppointmentCreate(BaseModel):
     patient_id: str; starts_at: datetime; reason: str = Field(min_length=2, max_length=240); notes: str | None = None
+    clinician_id: str | None = None
+    room: str | None = Field(default=None, max_length=80)
+    service_type: str | None = Field(default=None, max_length=80)
+    duration_minutes: int = Field(default=20, ge=5, le=240)
 
-class AppointmentStatusUpdate(BaseModel): status: Literal["scheduled", "checked_in", "completed", "cancelled"]
+class AppointmentReschedule(BaseModel):
+    """Partial update for moving/resizing/reassigning an appointment. Every
+    field is optional so the frontend calendar can send just what changed
+    (e.g. a drag-to-reschedule only sends starts_at)."""
+    starts_at: datetime | None = None
+    clinician_id: str | None = None
+    room: str | None = Field(default=None, max_length=80)
+    service_type: str | None = Field(default=None, max_length=80)
+    duration_minutes: int | None = Field(default=None, ge=5, le=240)
+
+class AppointmentStatusUpdate(BaseModel):
+    status: Literal["scheduled", "checked_in", "completed", "cancelled", "no_show"]
+    cancellation_reason: str | None = Field(default=None, max_length=240)
+
+class ClinicianSummary(BaseModel):
+    id: str
+    full_name: str
+
+class WaitlistCreate(BaseModel):
+    patient_id: str
+    desired_service: str | None = Field(default=None, max_length=80)
+    clinician_id: str | None = None
+    preferred_note: str | None = Field(default=None, max_length=240)
+
+class WaitlistEntry(BaseModel):
+    id: str
+    organization_id: str
+    patient_id: str
+    desired_service: str | None = None
+    clinician_id: str | None = None
+    preferred_note: str | None = None
+    status: Literal["waiting", "scheduled", "cancelled"] = "waiting"
+    created_at: datetime
+    appointment_id: str | None = None
+
+class WaitlistPromote(BaseModel):
+    """Turns a waiting-list entry into a real, conflict-checked appointment."""
+    starts_at: datetime
+    duration_minutes: int = Field(default=20, ge=5, le=240)
+    clinician_id: str | None = None
+    room: str | None = Field(default=None, max_length=80)
+    service_type: str | None = Field(default=None, max_length=80)
+
+ReminderChannel = Literal["email", "sms", "viber"]
+ReminderStatus = Literal["pending", "sent", "failed", "unconfigured", "cancelled"]
+
+class Reminder(BaseModel):
+    id: str
+    organization_id: str
+    appointment_id: str
+    channel: ReminderChannel
+    send_at: datetime
+    status: ReminderStatus = "pending"
+    created_at: datetime
+    last_attempt_at: datetime | None = None
+    error: str | None = None
+
 class ChatRequest(BaseModel): question: str = Field(min_length=2, max_length=2000)
 
 class TimelineItem(BaseModel):

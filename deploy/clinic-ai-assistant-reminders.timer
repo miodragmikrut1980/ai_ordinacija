@@ -1,0 +1,16 @@
+# Runs scripts/send_reminders.py every 5 minutes. Copy to
+# /etc/systemd/system/ alongside the matching .service file below, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now clinic-ai-assistant-reminders.timer
+
+[Unit]
+Description=Send due clinic appointment reminders every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

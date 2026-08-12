@@ -1,0 +1,15 @@
+# Oneshot unit triggered by clinic-ai-assistant-reminders.timer. Not
+# enabled directly -- the timer starts it. Uses the same EnvironmentFile
+# as the main service so CLINIC_SMTP_*/CLINIC_SMS_*/CLINIC_VIBER_* are
+# available to app/notifications.py.
+
+[Unit]
+Description=Send due clinic appointment reminders (oneshot)
+
+[Service]
+Type=oneshot
+User=clinic
+Group=clinic
+WorkingDirectory=/opt/clinic-ai-assistant
+EnvironmentFile=/opt/clinic-ai-assistant/.env.production
+ExecStart=/opt/clinic-ai-assistant/.venv/bin/python scripts/send_reminders.py data

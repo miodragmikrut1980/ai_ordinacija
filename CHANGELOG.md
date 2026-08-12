@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.14.0
+
+- Dodat je pravi kalendar ordinacije: nedeljni i mesečni prikaz termina
+  (raspored po satima za nedelju, pregled po danima za mesec), pored
+  postojeće liste. Termin sada ima dodeljenog lekara, sobu, tip usluge i
+  trajanje.
+- Sprečeno je dupliranje termina: novi ili pomereni termin se odbija sa
+  409 statusom ako se preklapa sa postojećim aktivnim terminom istog
+  lekara ili iste sobe (soba je fizičko ograničenje bez obzira na to koji
+  je lekar slobodan).
+- Dodato je pomeranje termina (`PATCH /api/appointments/{id}`) sa istom
+  proverom sudara, i status „nije se pojavio" odvojen od „otkazano",
+  oba sa opcionim razlogom koji ostaje u revizionom dnevniku.
+- Dodata je lista čekanja: pacijent se dodaje kada nema slobodnog
+  termina, a promocija u pravi termin prolazi kroz istu proveru sudara
+  kao i direktno zakazivanje.
+- Dodati su podsetnici za termine: novi termin automatski zakazuje
+  podsetnik 24h unapred. E-mail kanal stvarno šalje poštu preko SMTP
+  naloga ordinacije (`CLINIC_SMTP_*`); SMS i Viber su namerno označeni
+  kao „nije podešeno" dok se ne poveže pravi gateway, umesto lažnog
+  prikazivanja da je poruka poslata. `scripts/send_reminders.py` je nova
+  periodična skripta (cron/systemd timer, vidi
+  `deploy/clinic-ai-assistant-reminders.timer`) koja šalje dospele
+  podsetnike; prati isti obrazac direktnog pristupa bazi kao
+  `scripts/backup.py`.
+- Novi endpoint `/api/clinicians` za listu lekara u formama zakazivanja,
+  bez izlaganja pune liste korisnika (koja je i dalje samo za admina).
+- Novi test fajl `test_scheduling.py` (18 testova): sudari po lekaru i
+  po sobi, oslobađanje termina pri otkazivanju, pomeranje, lista
+  čekanja, i podsetnici uključujući skriptu za slanje.
+
 ## 1.13.0
 
 - Restore sada zahteva odgovarajući backup manifest, proverava SHA-256 i

@@ -29,9 +29,17 @@ const api = async (u, o = {}) => {
   if (!r.ok) {
     let m = "Zahtev nije uspeo";
     try {
-      m = (await r.json()).detail || m;
+      const detail = (await r.json()).detail;
+      m =
+        typeof detail === "string"
+          ? detail
+          : detail && detail.message
+            ? detail.message
+            : m;
     } catch {}
-    throw Error(m);
+    const err = Error(m);
+    err.status = r.status;
+    throw err;
   }
   return r.status === 204 ? null : r.json();
 };
@@ -102,6 +110,7 @@ async function init() {
       return;
     }
     await loadPatients();
+    await ensureClinicianOptions();
     await loadDashboard();
     $("#loginOverlay").classList.add("hidden");
   } catch {
@@ -140,6 +149,10 @@ async function loadPatients() {
   $("#appointmentPatient").innerHTML = patients
     .map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`)
     .join("");
+  if ($("#waitlistPatient"))
+    $("#waitlistPatient").innerHTML = patients
+      .map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`)
+      .join("");
 }
 async function loadDashboard() {
   const [m, a, d] = await Promise.all([
@@ -209,7 +222,7 @@ function lateMinutes(a) {
 }
 const appointmentRow = (a) => {
   const late = lateMinutes(a);
-  return `<div class="row appt-row ${a.status}${late > 0 ? " late" : ""}"><div><strong>${new Date(a.starts_at).toLocaleTimeString("sr-Latn-RS", { hour: "2-digit", minute: "2-digit" })} · ${esc(a.patient_name)}</strong><p>${esc(a.reason)}</p></div><div class="row-actions">${late > 0 ? `<span class="badge late" title="Pacijent nije prijavljen na vreme">Kasni ${late} min</span>` : ""}<button class="button secondary open-chart" data-patient="${a.patient_id}" title="Otvori karton pacijenta">Karton</button><select class="status-select" data-id="${a.id}">${APPT_STATUSES.map(([v, l]) => `<option value="${v}" ${a.status === v ? "selected" : ""}>${l}</option>`).join("")}</select></div></div>`;
+  return `<div class="row appt-row ${a.status}${late > 0 ? " late" : ""}"><div><strong>${new Date(a.starts_at).toLocaleTimeString("sr-Latn-RS", { hour: "2-digit", minute: "2-digit" })} · ${esc(a.patient_name)}</strong><p>${esc(a.reason)}${a.clinician_name ? " · " + esc(a.clinician_name) : ""}${a.room ? " · " + esc(a.room) : ""}</p></div><div class="row-actions">${late > 0 ? `<span class="badge late" title="Pacijent nije prijavljen na vreme">Kasni ${late} min</span>` : ""}<button class="button secondary open-chart" data-patient="${a.patient_id}" title="Otvori karton pacijenta">Karton</button><select class="status-select" data-id="${a.id}">${APPT_STATUSES.map(([v, l]) => `<option value="${v}" ${a.status === v ? "selected" : ""}>${l}</option>`).join("")}<option value="no_show" ${a.status === "no_show" ? "selected" : ""}>Nije se pojavio</option></select></div></div>`;
 };
 const documentRow = (d) =>
   `<div class="row"><div><strong>${esc(d.filename)}</strong><p>${esc(d.patient_name)} · ${fmtDate(d.uploaded_at)}</p></div>${d.attention ? '<span class="badge warn">Potrebna provera</span>' : '<span class="badge">Spremno</span>'}</div>`;
@@ -322,12 +335,332 @@ function renderTrendChart(daily) {
     .join("");
   return `<svg viewBox="0 0 ${W} ${H}" class="trend-chart" role="img" aria-label="Broj slučajeva po danu i sindromu">${gridLines}${xLabels}${series}</svg><div class="chart-legend">${legend}</div>`;
 }
-async function loadAppointments() {
-  const a = await api("/api/appointments");
-  $("#scheduleList").innerHTML = a.length
-    ? a.map(appointmentRow).join("")
-    : '<p class="muted">Još nema termina.</p>';
+/* === Kalendar ordinacije (nedelja/mesec/lista) === */
+const CAL_START_HOUR = 7;
+const CAL_END_HOUR = 20;
+const CAL_HOUR_PX = 52;
+const calState = { view: "week", anchor: new Date(), clinicianFilter: "" };
+let clinicianCache = [];
+
+function startOfWeek(d) {
+  const x = new Date(d);
+  const day = (x.getDay() + 6) % 7; // Monday = 0
+  x.setDate(x.getDate() - day);
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function sameDay(a, b) {
+  return isoDate(a) === isoDate(b);
+}
+const DAY_NAMES = ["Pon", "Uto", "Sre", "Čet", "Pet", "Sub", "Ned"];
+const MONTH_NAMES = [
+  "Januar", "Februar", "Mart", "April", "Maj", "Jun",
+  "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar",
+];
+
+async function ensureClinicianOptions() {
+  if (!clinicianCache.length) {
+    try {
+      clinicianCache = await api("/api/clinicians");
+    } catch {
+      clinicianCache = [];
+    }
+  }
+  const opts = clinicianCache
+    .map((c) => `<option value="${c.id}">${esc(c.full_name)}</option>`)
+    .join("");
+  $("#calClinicianFilter").innerHTML = `<option value="">Svi lekari</option>${opts}`;
+  for (const sel of [
+    "#appointmentClinician",
+    "#waitlistClinician",
+    "#promoteClinician",
+  ]) {
+    const el = $(sel);
+    if (el)
+      el.innerHTML = `<option value="">${sel === "#waitlistClinician" ? "Bilo koji" : "Nije dodeljen"}</option>${opts}`;
+  }
+}
+
+function calRangeLabel() {
+  if (calState.view === "week") {
+    const start = startOfWeek(calState.anchor);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    const sameMonth = start.getMonth() === end.getMonth();
+    return sameMonth
+      ? `${start.getDate()}–${end.getDate()}. ${MONTH_NAMES[start.getMonth()]} ${start.getFullYear()}.`
+      : `${start.getDate()}. ${MONTH_NAMES[start.getMonth()]} – ${end.getDate()}. ${MONTH_NAMES[end.getMonth()]} ${end.getFullYear()}.`;
+  }
+  if (calState.view === "month") {
+    return `${MONTH_NAMES[calState.anchor.getMonth()]} ${calState.anchor.getFullYear()}.`;
+  }
+  return "Svi termini";
+}
+
+const STATUS_COLOR = {
+  scheduled: "sched",
+  checked_in: "checkedin",
+  completed: "done",
+  cancelled: "cancelled",
+  no_show: "noshow",
+};
+
+function calBlockLabel(a) {
+  const t = new Date(a.starts_at).toLocaleTimeString("sr-Latn-RS", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${t} · ${esc(a.patient_name)}`;
+}
+
+function renderWeek(rows) {
+  const start = startOfWeek(calState.anchor);
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const today = new Date();
+  const hours = Array.from(
+    { length: CAL_END_HOUR - CAL_START_HOUR },
+    (_, i) => CAL_START_HOUR + i,
+  );
+  const totalPx = hours.length * CAL_HOUR_PX;
+  const head = days
+    .map(
+      (d) =>
+        `<div class="cal-day-head${sameDay(d, today) ? " today" : ""}">${DAY_NAMES[(d.getDay() + 6) % 7]}<br><b>${d.getDate()}.</b></div>`,
+    )
+    .join("");
+  const timeLabels = hours
+    .map((h) => `<div class="cal-hour-label">${h}:00</div>`)
+    .join("");
+  const dayBodies = days
+    .map((d) => {
+      const dayRows = rows.filter((a) => sameDay(new Date(a.starts_at), d));
+      const blocks = dayRows
+        .map((a) => {
+          const s = new Date(a.starts_at);
+          const mins = (s.getHours() - CAL_START_HOUR) * 60 + s.getMinutes();
+          const top = Math.max(0, (mins / 60) * CAL_HOUR_PX);
+          const height = Math.max(
+            18,
+            (a.duration_minutes / 60) * CAL_HOUR_PX,
+          );
+          return `<button type="button" class="cal-block ${STATUS_COLOR[a.status] || "sched"}" data-id="${a.id}" style="top:${top}px;height:${height}px" title="${esc(a.reason)}${a.room ? " · " + esc(a.room) : ""}">${calBlockLabel(a)}</button>`;
+        })
+        .join("");
+      return `<div class="cal-day-body" data-date="${isoDate(d)}" style="height:${totalPx}px">${blocks}</div>`;
+    })
+    .join("");
+  $("#calendarWeek").innerHTML =
+    `<div class="cal-grid">` +
+    `<div class="cal-corner"></div>${head}` +
+    `<div class="cal-time-col" style="height:${totalPx}px">${timeLabels}</div>${dayBodies}` +
+    `</div>`;
+}
+
+function renderMonth(rows) {
+  const y = calState.anchor.getFullYear(),
+    m = calState.anchor.getMonth();
+  const firstOfMonth = new Date(y, m, 1);
+  const gridStart = startOfWeek(firstOfMonth);
+  const today = new Date();
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(gridStart);
+    d.setDate(d.getDate() + i);
+    const dayRows = rows
+      .filter((a) => sameDay(new Date(a.starts_at), d))
+      .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+    const chips = dayRows
+      .slice(0, 3)
+      .map(
+        (a) =>
+          `<button type="button" class="cal-chip ${STATUS_COLOR[a.status] || "sched"}" data-id="${a.id}">${calBlockLabel(a)}</button>`,
+      )
+      .join("");
+    const more =
+      dayRows.length > 3
+        ? `<span class="cal-more">+${dayRows.length - 3} još</span>`
+        : "";
+    const outside = d.getMonth() !== m;
+    return `<div class="cal-month-cell${outside ? " outside" : ""}${sameDay(d, today) ? " today" : ""}" data-date="${isoDate(d)}"><span class="cal-month-daynum">${d.getDate()}</span>${chips}${more}</div>`;
+  }).join("");
+  $("#calendarMonth").innerHTML =
+    `<div class="cal-month-head">${DAY_NAMES.map((n) => `<div>${n}</div>`).join("")}</div>` +
+    `<div class="cal-month-grid">${cells}</div>`;
+}
+
+async function loadCalendar() {
+  await ensureClinicianOptions();
+  $("#calendarRangeLabel").textContent = calRangeLabel();
+  let from, to;
+  if (calState.view === "week") {
+    from = startOfWeek(calState.anchor);
+    to = new Date(from);
+    to.setDate(to.getDate() + 7);
+  } else if (calState.view === "month") {
+    from = startOfWeek(new Date(calState.anchor.getFullYear(), calState.anchor.getMonth(), 1));
+    to = new Date(from);
+    to.setDate(to.getDate() + 42);
+  }
+  const params = new URLSearchParams();
+  if (from) params.set("from_", from.toISOString());
+  if (to) params.set("to", to.toISOString());
+  if (calState.clinicianFilter) params.set("clinician_id", calState.clinicianFilter);
+  const rows = await api(`/api/appointments?${params.toString()}`);
+  $("#calendarWeek").classList.toggle("hidden", calState.view !== "week");
+  $("#calendarMonth").classList.toggle("hidden", calState.view !== "month");
+  $("#scheduleList").classList.toggle("hidden", calState.view !== "list");
+  if (calState.view === "week") renderWeek(rows);
+  else if (calState.view === "month") renderMonth(rows);
+  else
+    $("#scheduleList").innerHTML = rows.length
+      ? rows
+          .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+          .map(appointmentRow)
+          .join("")
+      : '<p class="muted">Još nema termina.</p>';
+  await loadWaitlistPanel();
+}
+async function loadAppointments() {
+  await loadCalendar();
+}
+
+/* Klik na termin u kalendaru: mala akciona kartica */
+function closeCalPopover() {
+  $("#calPopover")?.remove();
+}
+document.addEventListener("click", async (e) => {
+  const block = e.target.closest(".cal-block, .cal-chip");
+  if (block) {
+    closeCalPopover();
+    const rows = await api("/api/appointments");
+    const a = rows.find((x) => x.id === block.dataset.id);
+    if (!a) return;
+    const rect = block.getBoundingClientRect();
+    const pop = document.createElement("div");
+    pop.id = "calPopover";
+    pop.className = "cal-popover";
+    pop.style.top = `${Math.min(window.scrollY + rect.bottom + 6, window.scrollY + window.innerHeight - 260)}px`;
+    pop.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 300)}px`;
+    const dt = new Date(a.starts_at);
+    const localVal = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    pop.innerHTML = `
+      <div class="cal-pop-head"><strong>${esc(a.patient_name)}</strong><button type="button" class="icon-button cal-pop-close">×</button></div>
+      <p class="muted">${esc(a.reason)}${a.room ? " · " + esc(a.room) : ""}${a.clinician_name ? " · " + esc(a.clinician_name) : ""}</p>
+      <select class="cal-pop-status">${APPT_STATUSES.map(([v, l]) => `<option value="${v}" ${a.status === v ? "selected" : ""}>${l}</option>`).join("")}<option value="no_show" ${a.status === "no_show" ? "selected" : ""}>Nije se pojavio</option></select>
+      <form class="cal-pop-reschedule"><input type="datetime-local" name="starts_at" value="${localVal}"><button class="button secondary" type="submit">Pomeri</button></form>
+      <button type="button" class="button secondary cal-pop-chart" data-patient="${a.patient_id}">Otvori karton</button>
+    `;
+    document.body.appendChild(pop);
+    pop.querySelector(".cal-pop-close").onclick = closeCalPopover;
+    pop.querySelector(".cal-pop-chart").onclick = async () => {
+      closeCalPopover();
+      showView("workspace");
+      $("#patientSelect").value = a.patient_id;
+      await selectPatient(a.patient_id);
+    };
+    pop.querySelector(".cal-pop-status").onchange = async (ev) => {
+      const status = ev.target.value;
+      let cancellation_reason = null;
+      if (status === "cancelled" || status === "no_show") {
+        cancellation_reason = prompt(
+          status === "cancelled" ? "Razlog otkazivanja (opciono):" : "Napomena (opciono):",
+        );
+      }
+      try {
+        await api(`/api/appointments/${a.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, cancellation_reason: cancellation_reason || null }),
+        });
+        toast("Status je ažuriran");
+        closeCalPopover();
+        await loadCalendar();
+      } catch (x) {
+        toast(x.message);
+      }
+    };
+    pop.querySelector(".cal-pop-reschedule").onsubmit = async (ev) => {
+      ev.preventDefault();
+      const val = new FormData(ev.target).get("starts_at");
+      try {
+        await api(`/api/appointments/${a.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ starts_at: new Date(val).toISOString() }),
+        });
+        toast("Termin je pomeren");
+        closeCalPopover();
+        await loadCalendar();
+      } catch (x) {
+        toast(x.message);
+      }
+    };
+    return;
+  }
+  if (!e.target.closest("#calPopover")) closeCalPopover();
+  // Klik na prazno mesto u kalendaru -> otvori formu sa unapred popunjenim vremenom
+  const dayBody = e.target.closest(".cal-day-body");
+  if (dayBody && e.target === dayBody) {
+    const rect = dayBody.getBoundingClientRect();
+    const offsetY = e.clientY - rect.top;
+    const totalMin = Math.round((offsetY / CAL_HOUR_PX) * 60);
+    const snapped = Math.max(0, Math.round(totalMin / 15) * 15);
+    const h = CAL_START_HOUR + Math.floor(snapped / 60);
+    const min = snapped % 60;
+    const d = dayBody.dataset.date;
+    $("#appointmentStartsAt").value = `${d}T${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+    if (calState.clinicianFilter) $("#appointmentClinician").value = calState.clinicianFilter;
+    $("#appointmentDialog").showModal();
+  }
+  const monthCell = e.target.closest(".cal-month-cell");
+  if (monthCell && e.target === monthCell) {
+    $("#appointmentStartsAt").value = `${monthCell.dataset.date}T09:00`;
+    $("#appointmentDialog").showModal();
+  }
+});
+
+/* === Lista čekanja === */
+async function loadWaitlistPanel() {
+  const rows = await api("/api/waitlist?status=waiting");
+  $("#waitlistList").innerHTML = rows.length
+    ? rows
+        .map((w) => {
+          const patientName =
+            patients.find((p) => p.id === w.patient_id)?.full_name || "Pacijent";
+          return `<div class="row"><div><strong>${esc(patientName)}</strong><p>${esc(w.desired_service || "Bilo koja usluga")}${w.preferred_note ? " · " + esc(w.preferred_note) : ""}</p></div><div class="row-actions"><button class="button secondary waitlist-promote" data-id="${w.id}" data-patient="${w.patient_id}" data-clinician="${w.clinician_id || ""}">Zakaži</button><button class="button secondary waitlist-cancel" data-id="${w.id}">Ukloni</button></div></div>`;
+        })
+        .join("")
+    : '<p class="muted">Lista čekanja je prazna.</p>';
+}
+document.addEventListener("click", async (e) => {
+  const promoteBtn = e.target.closest(".waitlist-promote");
+  if (promoteBtn) {
+    await ensureClinicianOptions();
+    $("#promoteForm").dataset.entryId = promoteBtn.dataset.id;
+    if (promoteBtn.dataset.clinician) $("#promoteClinician").value = promoteBtn.dataset.clinician;
+    $("#promoteDialog").showModal();
+    return;
+  }
+  const cancelBtn = e.target.closest(".waitlist-cancel");
+  if (cancelBtn) {
+    try {
+      await api(`/api/waitlist/${cancelBtn.dataset.id}/status?status=cancelled`, { method: "PATCH" });
+      toast("Uklonjeno sa liste čekanja");
+      await loadWaitlistPanel();
+    } catch (x) {
+      toast(x.message);
+    }
+  }
+});
+
 async function loadInbox() {
   const d = await api("/api/documents/inbox");
   $("#inboxList").innerHTML = d.length
@@ -539,7 +872,11 @@ $("#appointmentForm").onsubmit = async (e) => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target));
   d.starts_at = new Date(d.starts_at).toISOString();
-  if (!d.notes) delete d.notes;
+  d.duration_minutes = d.duration_minutes ? parseInt(d.duration_minutes, 10) : 20;
+  ["notes", "clinician_id", "room", "service_type"].forEach((k) => {
+    if (!d[k]) delete d[k];
+  });
+  $("#appointmentConflict").classList.add("hidden");
   try {
     await api("/api/appointments", {
       method: "POST",
@@ -549,19 +886,109 @@ $("#appointmentForm").onsubmit = async (e) => {
     e.target.reset();
     $("#appointmentDialog").close();
     await loadDashboard();
+    if ($("#scheduleView") && !$("#scheduleView").classList.contains("hidden")) await loadCalendar();
     toast("Termin je zakazan");
+  } catch (x) {
+    if (x.status === 409) {
+      $("#appointmentConflict").textContent = x.message;
+      $("#appointmentConflict").classList.remove("hidden");
+    } else {
+      toast(x.message);
+    }
+  }
+};
+$("#waitlistForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  ["desired_service", "clinician_id", "preferred_note"].forEach((k) => {
+    if (!d[k]) delete d[k];
+  });
+  try {
+    await api("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    e.target.reset();
+    $("#waitlistDialog").close();
+    await loadWaitlistPanel();
+    toast("Dodato na listu čekanja");
   } catch (x) {
     toast(x.message);
   }
 };
+$("#promoteForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const entryId = e.target.dataset.entryId;
+  const d = Object.fromEntries(new FormData(e.target));
+  d.starts_at = new Date(d.starts_at).toISOString();
+  d.duration_minutes = d.duration_minutes ? parseInt(d.duration_minutes, 10) : 20;
+  ["clinician_id", "room"].forEach((k) => {
+    if (!d[k]) delete d[k];
+  });
+  $("#promoteConflict").classList.add("hidden");
+  try {
+    await api(`/api/waitlist/${entryId}/promote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    e.target.reset();
+    $("#promoteDialog").close();
+    await loadWaitlistPanel();
+    await loadCalendar();
+    toast("Termin je zakazan sa liste čekanja");
+  } catch (x) {
+    if (x.status === 409) {
+      $("#promoteConflict").textContent = x.message;
+      $("#promoteConflict").classList.remove("hidden");
+    } else {
+      toast(x.message);
+    }
+  }
+};
+$("#waitlistOpen").onclick = () => $("#waitlistDialog").showModal();
+$("#calPrev").onclick = () => {
+  if (calState.view === "week") calState.anchor.setDate(calState.anchor.getDate() - 7);
+  else calState.anchor.setMonth(calState.anchor.getMonth() - 1);
+  loadCalendar();
+};
+$("#calNext").onclick = () => {
+  if (calState.view === "week") calState.anchor.setDate(calState.anchor.getDate() + 7);
+  else calState.anchor.setMonth(calState.anchor.getMonth() + 1);
+  loadCalendar();
+};
+$("#calToday").onclick = () => {
+  calState.anchor = new Date();
+  loadCalendar();
+};
+$$(".cal-view-btn").forEach((b) => {
+  b.onclick = () => {
+    $$(".cal-view-btn").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    calState.view = b.dataset.view;
+    loadCalendar();
+  };
+});
+$("#calClinicianFilter").onchange = (e) => {
+  calState.clinicianFilter = e.target.value;
+  loadCalendar();
+};
 document.addEventListener("change", async (e) => {
   if (e.target.matches(".status-select")) {
+    let cancellation_reason = null;
+    if (e.target.value === "cancelled" || e.target.value === "no_show") {
+      cancellation_reason = prompt(
+        e.target.value === "cancelled" ? "Razlog otkazivanja (opciono):" : "Napomena (opciono):",
+      );
+    }
     await api(`/api/appointments/${e.target.dataset.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: e.target.value }),
+      body: JSON.stringify({ status: e.target.value, cancellation_reason: cancellation_reason || null }),
     });
     await loadDashboard();
+    if ($("#scheduleView") && !$("#scheduleView").classList.contains("hidden")) await loadCalendar();
     toast("Status je ažuriran");
   }
 });

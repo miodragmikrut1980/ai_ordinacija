@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS appointments (
 );
 CREATE INDEX IF NOT EXISTS idx_appointments_org ON appointments(organization_id);
 
+CREATE TABLE IF NOT EXISTS waitlist_entries (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    status TEXT NOT NULL, created_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_waitlist_org ON waitlist_entries(organization_id, status);
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, appointment_id TEXT NOT NULL,
+    channel TEXT NOT NULL, send_at TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_org ON reminders(organization_id, status, send_at);
+CREATE INDEX IF NOT EXISTS idx_reminders_appointment ON reminders(appointment_id);
+
 CREATE TABLE IF NOT EXISTS reports (
     id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL, generated_at TEXT NOT NULL, data BLOB NOT NULL
 );
@@ -940,15 +953,39 @@ class PersistentStore:
         return self._get_lab_result(result_id)
 
     # -- appointments -------------------------------------------------------------
-    def create_appointment(self, org: str, p: AppointmentCreate) -> AppointmentRecord:
+    def find_appointment_conflict(self, org: str, clinician_id: str | None, room: str | None,
+                               starts_at: datetime, duration_minutes: int, exclude_id: str | None = None) -> AppointmentRecord | None:
+        """Returns the first active appointment that overlaps the given
+        [starts_at, starts_at+duration) window for the same clinician or the
+        same room, or None if the slot is free. Only 'scheduled' and
+        'checked_in' appointments block a slot -- a cancelled or no-show
+        appointment left the calendar, and a completed one already happened,
+        so neither should prevent booking that time again."""
+        ends_at = starts_at + timedelta(minutes=duration_minutes)
+        for a in self.list_appointments(org):
+            if a.id == exclude_id or a.status not in ('scheduled', 'checked_in'):
+                continue
+            same_clinician = clinician_id and a.clinician_id == clinician_id
+            same_room = room and a.room == room
+            if not (same_clinician or same_room):
+                continue
+            a_end = a.starts_at + timedelta(minutes=a.duration_minutes)
+            if a.starts_at < ends_at and starts_at < a_end:
+                return a
+        return None
+
+    def create_appointment(self, org: str, p: AppointmentCreate, clinician_name: str | None = None) -> AppointmentRecord:
         appt_id = str(uuid4())
-        blob = self._seal({"reason": p.reason, "notes": p.notes})
+        blob = self._seal({
+            "reason": p.reason, "notes": p.notes, "clinician_id": p.clinician_id, "clinician_name": clinician_name,
+            "room": p.room, "service_type": p.service_type, "duration_minutes": p.duration_minutes, "cancellation_reason": None,
+        })
         with self._lock, self._conn:
             self._conn.execute(
                 "INSERT INTO appointments(id,organization_id,patient_id,starts_at,status,created_at,data) VALUES (?,?,?,?,?,?,?)",
                 (appt_id, org, p.patient_id, _iso(p.starts_at), "scheduled", _iso(_now()), blob),
             )
-        return self._get_appointment(appt_id)
+        return self.get_appointment(appt_id)
 
     def _appointment_from_row(self, row) -> AppointmentRecord:
         payload = self._unseal(row["data"])
@@ -957,7 +994,7 @@ class PersistentStore:
             starts_at=row["starts_at"], status=row["status"], created_at=row["created_at"], **payload,
         )
 
-    def _get_appointment(self, appt_id: str) -> AppointmentRecord | None:
+    def get_appointment(self, appt_id: str) -> AppointmentRecord | None:
         row = self._one("SELECT * FROM appointments WHERE id=?", (appt_id,))
         return self._appointment_from_row(row) if row else None
 
@@ -965,13 +1002,143 @@ class PersistentStore:
         rows = self._all("SELECT * FROM appointments WHERE organization_id=? ORDER BY starts_at", (org,))
         return [self._appointment_from_row(r) for r in rows]
 
-    def update_appointment_status(self, org: str, id: str, status: str) -> AppointmentRecord | None:
+    def update_appointment_status(self, org: str, id: str, status: str, cancellation_reason: str | None = None) -> AppointmentRecord | None:
         with self._lock, self._conn:
-            row = self._conn.execute("SELECT 1 FROM appointments WHERE id=? AND organization_id=?", (id, org)).fetchone()
+            row = self._conn.execute("SELECT data FROM appointments WHERE id=? AND organization_id=?", (id, org)).fetchone()
             if not row:
                 return None
-            self._conn.execute("UPDATE appointments SET status=? WHERE id=?", (status, id))
-        return self._get_appointment(id)
+            payload = self._unseal(row["data"])
+            if status in ('cancelled', 'no_show') and cancellation_reason:
+                payload['cancellation_reason'] = cancellation_reason
+            blob = self._seal(payload)
+            self._conn.execute("UPDATE appointments SET status=?, data=? WHERE id=?", (status, blob, id))
+        if status in ('cancelled', 'no_show'):
+            self.cancel_pending_reminders(org, id)
+        return self.get_appointment(id)
+
+    def reschedule_appointment(self, org: str, id: str, patch: dict) -> AppointmentRecord | None:
+        """Applies a partial update (starts_at/clinician_id/room/service_type/
+        duration_minutes) to an existing appointment. Caller is responsible
+        for the conflict check (see find_appointment_conflict) before calling
+        this -- kept separate so the router can return a 409 with details
+        about *why*, rather than this method raising an opaque exception."""
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT data, starts_at FROM appointments WHERE id=? AND organization_id=?", (id, org)).fetchone()
+            if not row:
+                return None
+            payload = self._unseal(row["data"])
+            starts_at = row["starts_at"]
+            for field in ('clinician_id', 'room', 'service_type', 'duration_minutes'):
+                if patch.get(field) is not None:
+                    payload[field] = patch[field]
+            if patch.get('clinician_name') is not None:
+                payload['clinician_name'] = patch['clinician_name']
+            if patch.get('starts_at') is not None:
+                starts_at = _iso(patch['starts_at'])
+            blob = self._seal(payload)
+            self._conn.execute("UPDATE appointments SET starts_at=?, data=? WHERE id=?", (starts_at, blob, id))
+        return self.get_appointment(id)
+
+    def list_clinicians(self, org: str) -> list[dict]:
+        """Doctor-role users, active only -- just enough (id + name) for a
+        scheduling dropdown. Deliberately not the full UserRecord (which
+        includes a password hash and is otherwise admin-only via /api/users)
+        so receptionist can populate a calendar without a privilege escalation."""
+        return [{"id": u.id, "full_name": u.full_name} for u in self.list_users(org) if u.role == "doctor" and u.active]
+
+    # -- waitlist -------------------------------------------------------------
+    def create_waitlist_entry(self, org: str, p: WaitlistCreate) -> WaitlistEntry:
+        entry_id = str(uuid4())
+        blob = self._seal({
+            "desired_service": p.desired_service, "clinician_id": p.clinician_id,
+            "preferred_note": p.preferred_note, "appointment_id": None,
+        })
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO waitlist_entries(id,organization_id,patient_id,status,created_at,data) VALUES (?,?,?,?,?,?)",
+                (entry_id, org, p.patient_id, "waiting", _iso(_now()), blob),
+            )
+        return self.get_waitlist_entry(entry_id)
+
+    def _waitlist_from_row(self, row) -> WaitlistEntry:
+        payload = self._unseal(row["data"])
+        return WaitlistEntry(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                              status=row["status"], created_at=row["created_at"], **payload)
+
+    def get_waitlist_entry(self, entry_id: str) -> WaitlistEntry | None:
+        row = self._one("SELECT * FROM waitlist_entries WHERE id=?", (entry_id,))
+        return self._waitlist_from_row(row) if row else None
+
+    def list_waitlist(self, org: str, status: str | None = None) -> list[WaitlistEntry]:
+        if status:
+            rows = self._all("SELECT * FROM waitlist_entries WHERE organization_id=? AND status=? ORDER BY created_at", (org, status))
+        else:
+            rows = self._all("SELECT * FROM waitlist_entries WHERE organization_id=? ORDER BY created_at", (org,))
+        return [self._waitlist_from_row(r) for r in rows]
+
+    def update_waitlist_status(self, org: str, id: str, status: str, appointment_id: str | None = None) -> WaitlistEntry | None:
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT data FROM waitlist_entries WHERE id=? AND organization_id=?", (id, org)).fetchone()
+            if not row:
+                return None
+            payload = self._unseal(row["data"])
+            if appointment_id is not None:
+                payload['appointment_id'] = appointment_id
+            blob = self._seal(payload)
+            self._conn.execute("UPDATE waitlist_entries SET status=?, data=? WHERE id=?", (status, blob, id))
+        return self.get_waitlist_entry(id)
+
+    # -- reminders -------------------------------------------------------------
+    def create_reminder(self, org: str, appointment_id: str, channel: str, send_at: datetime) -> Reminder:
+        reminder_id = str(uuid4())
+        blob = self._seal({"last_attempt_at": None, "error": None})
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO reminders(id,organization_id,appointment_id,channel,send_at,status,created_at,data) VALUES (?,?,?,?,?,?,?,?)",
+                (reminder_id, org, appointment_id, channel, _iso(send_at), "pending", _iso(_now()), blob),
+            )
+        return self._get_reminder(reminder_id)
+
+    def _reminder_from_row(self, row) -> Reminder:
+        payload = self._unseal(row["data"])
+        return Reminder(id=row["id"], organization_id=row["organization_id"], appointment_id=row["appointment_id"],
+                         channel=row["channel"], send_at=row["send_at"], status=row["status"], created_at=row["created_at"], **payload)
+
+    def _get_reminder(self, reminder_id: str) -> Reminder | None:
+        row = self._one("SELECT * FROM reminders WHERE id=?", (reminder_id,))
+        return self._reminder_from_row(row) if row else None
+
+    def list_reminders(self, org: str, appointment_id: str | None = None) -> list[Reminder]:
+        if appointment_id:
+            rows = self._all("SELECT * FROM reminders WHERE organization_id=? AND appointment_id=? ORDER BY send_at", (org, appointment_id))
+        else:
+            rows = self._all("SELECT * FROM reminders WHERE organization_id=? ORDER BY send_at", (org,))
+        return [self._reminder_from_row(r) for r in rows]
+
+    def list_due_reminders(self, before: datetime) -> list[Reminder]:
+        """Across ALL organizations -- this is the query scripts/send_reminders.py
+        runs as a periodic job outside any single tenant's request context,
+        the same direct-store-access pattern scripts/backup.py uses."""
+        rows = self._all("SELECT * FROM reminders WHERE status='pending' AND send_at<=?", (_iso(before),))
+        return [self._reminder_from_row(r) for r in rows]
+
+    def mark_reminder_result(self, reminder_id: str, status: str, error: str | None = None) -> None:
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT data FROM reminders WHERE id=?", (reminder_id,)).fetchone()
+            if not row:
+                return
+            payload = self._unseal(row["data"])
+            payload['last_attempt_at'] = _iso(_now())
+            payload['error'] = error
+            blob = self._seal(payload)
+            self._conn.execute("UPDATE reminders SET status=?, data=? WHERE id=?", (status, blob, reminder_id))
+
+    def cancel_pending_reminders(self, org: str, appointment_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE reminders SET status='cancelled' WHERE organization_id=? AND appointment_id=? AND status='pending'",
+                (org, appointment_id),
+            )
 
     # -- reports -------------------------------------------------------------
     def add_report(self, org: str, patient_id: str, title: str, content: str) -> GeneratedReport:
