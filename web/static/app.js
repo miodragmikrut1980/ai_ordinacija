@@ -78,12 +78,14 @@ function showView(name) {
     audit: "Evidencija aktivnosti",
     users: "Upravljanje korisnicima",
     radar: "AI epidemiološki radar",
+    finance: "Finansije ordinacije",
   }[name];
   if (name === "dashboard") loadDashboard();
   if (name === "schedule") loadAppointments();
   if (name === "inbox") loadInbox();
   if (name === "reports") loadReports();
   if (name === "audit") loadAudit();
+  if (name === "finance") loadFinance();
   if (name === "users") {
     loadUsers();
     loadSessions();
@@ -131,6 +133,12 @@ function applyUser() {
   );
   $$(".admin-only").forEach((x) =>
     x.classList.toggle("hidden", currentUser.role !== "admin"),
+  );
+  $$(".till-only").forEach((x) =>
+    x.classList.toggle(
+      "hidden",
+      !["receptionist", "admin"].includes(currentUser.role),
+    ),
   );
   if (currentUser.role === "receptionist") {
     $$(".upload,#reportBtn,.quick-questions,#chatForm").forEach((x) =>
@@ -1945,3 +1953,280 @@ if ($("#exportClinicBtn"))
       `izvoz-ordinacije-${new Date().toISOString().slice(0, 10)}.zip`,
       $("#exportClinicBtn"),
     );
+
+/* === Finansijsko-administrativni modul === */
+let serviceCache = [];
+let invoiceItemSeq = 0;
+
+function fmtMoney(n) {
+  return `${Number(n).toLocaleString("sr-Latn-RS")} RSD`;
+}
+
+async function loadFinance() {
+  if (!$("#financeDate").value)
+    $("#financeDate").value = new Date().toISOString().slice(0, 10);
+  await Promise.all([
+    loadServices(),
+    loadInvoiceList(),
+    ["receptionist", "admin"].includes(currentUser.role)
+      ? loadFinanceSummary()
+      : Promise.resolve(),
+    ["receptionist", "admin"].includes(currentUser.role)
+      ? loadOutstanding()
+      : Promise.resolve(),
+  ]);
+}
+
+async function loadFinanceSummary() {
+  const d = await api(`/api/finance/daily-summary?date=${$("#financeDate").value}`);
+  const methods = { gotovina: "Gotovina", kartica: "Kartica", prenos: "Prenos" };
+  const methodRows = Object.entries(methods)
+    .map(
+      ([k, l]) =>
+        `<div class="metric-card"><span>${l}</span><strong>${fmtMoney(d.revenue_by_method[k] || 0)}</strong></div>`,
+    )
+    .join("");
+  $("#financeSummary").innerHTML =
+    `<div class="metric-card"><span>Ukupan promet</span><strong>${fmtMoney(d.revenue_collected_rsd)}</strong></div>` +
+    `<div class="metric-card"><span>Izdati računi</span><strong>${d.invoices_issued}</strong></div>` +
+    methodRows +
+    `<div class="metric-card${d.outstanding_new_rsd > 0 ? " attention" : ""}"><span>Novi dug danas</span><strong>${fmtMoney(d.outstanding_new_rsd)}</strong></div>`;
+}
+$("#financeDate").onchange = () => loadFinanceSummary();
+
+async function loadOutstanding() {
+  const rows = await api("/api/finance/outstanding");
+  $("#outstandingList").innerHTML = rows.length
+    ? rows
+        .map(
+          (o) =>
+            `<div class="row"><div><strong>${esc(o.patient_name)}</strong><p>${esc(o.invoice_number)} · ${o.days_outstanding} ${o.days_outstanding === 1 ? "dan" : "dana"} · plaćeno ${fmtMoney(o.paid_rsd)} od ${fmtMoney(o.total_rsd)}</p></div><span class="badge warn">${fmtMoney(o.balance_due_rsd)}</span></div>`,
+        )
+        .join("")
+    : '<p class="muted">Nema neplaćenih računa.</p>';
+}
+
+async function loadServices() {
+  serviceCache = await api("/api/finance/services");
+  $("#serviceList").innerHTML = serviceCache.length
+    ? serviceCache
+        .map(
+          (s) =>
+            `<div class="row"><div><strong>${esc(s.name)}</strong><p>${s.category ? esc(s.category) + " · " : ""}${s.default_duration_minutes ? s.default_duration_minutes + " min" : ""}</p></div><div class="row-actions"><strong>${fmtMoney(s.price_rsd)}</strong>${currentUser.role === "admin" ? `<button type="button" class="button secondary service-toggle" data-id="${s.id}" data-active="${s.active}">${s.active ? "Deaktiviraj" : "Aktiviraj"}</button>` : ""}</div></div>`,
+        )
+        .join("")
+    : '<p class="muted">Cenovnik je prazan.</p>';
+}
+
+async function loadInvoiceList() {
+  const rows = await api("/api/finance/invoices");
+  const patientName = (id) =>
+    patients.find((p) => p.id === id)?.full_name || "Pacijent";
+  const STATUS_LABEL = {
+    issued: "Izdat",
+    paid: "Plaćen",
+    cancelled: "Otkazan",
+    draft: "Nacrt",
+  };
+  $("#invoiceList").innerHTML = rows.length
+    ? rows
+        .slice(0, 25)
+        .map(
+          (i) =>
+            `<div class="row invoice-row ${i.status}"><div><strong>${esc(i.invoice_number)} · ${esc(patientName(i.patient_id))}</strong><p>${fmtDate(i.issued_at)} · ${fmtMoney(i.total_rsd)}${i.balance_due_rsd > 0 ? ` · dug ${fmtMoney(i.balance_due_rsd)}` : ""}</p></div><div class="row-actions"><span class="badge ${i.status === "cancelled" ? "warn" : ""}">${STATUS_LABEL[i.status]}</span>${i.status === "issued" && ["receptionist", "admin"].includes(currentUser.role) ? `<button type="button" class="button secondary invoice-pay" data-id="${i.id}" data-balance="${i.balance_due_rsd}">Uplata</button>` : ""}${i.status !== "cancelled" && currentUser.role === "admin" ? `<button type="button" class="button secondary invoice-cancel" data-id="${i.id}">Otkaži</button>` : ""}</div></div>`,
+        )
+        .join("")
+    : '<p class="muted">Još nema izdatih računa.</p>';
+}
+
+function invoiceItemRow(id) {
+  const opts = serviceCache
+    .map((s) => `<option value="${s.id}" data-price="${s.price_rsd}">${esc(s.name)} — ${fmtMoney(s.price_rsd)}</option>`)
+    .join("");
+  return `<div class="invoice-item-row" data-row="${id}">
+    <select class="ii-service"><option value="">Slobodna stavka</option>${opts}</select>
+    <input class="ii-desc" placeholder="Opis" required maxlength="200">
+    <input class="ii-qty" type="number" min="1" value="1" title="Količina">
+    <input class="ii-price" type="number" min="0" step="10" placeholder="Cena" required title="Jedinična cena (RSD)">
+    <input class="ii-discount" type="number" min="0" max="100" value="0" title="Popust %">
+    <button type="button" class="icon-button ii-remove" title="Ukloni stavku">×</button>
+  </div>`;
+}
+function recalcInvoiceTotal() {
+  let subtotal = 0;
+  $$(".invoice-item-row").forEach((row) => {
+    const qty = parseFloat(row.querySelector(".ii-qty").value) || 0;
+    const price = parseFloat(row.querySelector(".ii-price").value) || 0;
+    const disc = parseFloat(row.querySelector(".ii-discount").value) || 0;
+    subtotal += Math.round(qty * price * (100 - disc)) / 100;
+  });
+  const invoiceDiscount = parseFloat($("#invoiceForm [name=discount_percent]").value) || 0;
+  const total = Math.round(subtotal * (100 - invoiceDiscount)) / 100;
+  $("#invoiceTotalPreview").textContent = fmtMoney(Math.round(total));
+}
+function addInvoiceItemRow() {
+  invoiceItemSeq++;
+  $("#invoiceItems").insertAdjacentHTML("beforeend", invoiceItemRow(invoiceItemSeq));
+  recalcInvoiceTotal();
+}
+$("#addInvoiceItem").onclick = addInvoiceItemRow;
+$("#invoiceItems").addEventListener("change", (e) => {
+  if (e.target.classList.contains("ii-service")) {
+    const opt = e.target.selectedOptions[0];
+    const row = e.target.closest(".invoice-item-row");
+    if (opt && opt.dataset.price) {
+      row.querySelector(".ii-price").value = opt.dataset.price;
+      row.querySelector(".ii-desc").value = opt.textContent.split(" — ")[0];
+    }
+  }
+  recalcInvoiceTotal();
+});
+$("#invoiceItems").addEventListener("input", recalcInvoiceTotal);
+$("#invoiceForm [name=discount_percent]").addEventListener("input", recalcInvoiceTotal);
+$("#invoiceItems").addEventListener("click", (e) => {
+  if (e.target.classList.contains("ii-remove")) {
+    e.target.closest(".invoice-item-row").remove();
+    recalcInvoiceTotal();
+  }
+});
+
+async function openInvoiceDialog(prefillPatientId) {
+  if (!serviceCache.length) await loadServices();
+  $("#invoicePatient").innerHTML = patients
+    .map((p) => `<option value="${p.id}">${esc(p.full_name)}</option>`)
+    .join("");
+  if (prefillPatientId) $("#invoicePatient").value = prefillPatientId;
+  $("#invoiceItems").innerHTML = "";
+  invoiceItemSeq = 0;
+  addInvoiceItemRow();
+  $("#invoiceForm [name=discount_percent]").value = 0;
+  $("#invoiceForm [name=notes]").value = "";
+  recalcInvoiceTotal();
+  $("#invoiceDialog").showModal();
+}
+$("#newInvoiceOpen").onclick = () => openInvoiceDialog();
+if ($("#issueInvoiceBtn"))
+  $("#issueInvoiceBtn").onclick = () => {
+    if (!activePatient) return toast("Prvo izaberite pacijenta");
+    openInvoiceDialog(activePatient.id);
+  };
+
+$("#invoiceForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const rows = $$(".invoice-item-row");
+  if (!rows.length) return toast("Dodajte bar jednu stavku");
+  const line_items = rows.map((row) => ({
+    service_id: row.querySelector(".ii-service").value || null,
+    description: row.querySelector(".ii-desc").value,
+    quantity: parseInt(row.querySelector(".ii-qty").value, 10) || 1,
+    unit_price_rsd: parseInt(row.querySelector(".ii-price").value, 10) || 0,
+    discount_percent: parseInt(row.querySelector(".ii-discount").value, 10) || 0,
+  }));
+  const patient_id = $("#invoicePatient").value;
+  const discount_percent = parseInt($("#invoiceForm [name=discount_percent]").value, 10) || 0;
+  const notes = $("#invoiceForm [name=notes]").value || null;
+  try {
+    await api("/api/finance/invoices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient_id, line_items, discount_percent, notes }),
+    });
+    $("#invoiceDialog").close();
+    toast("Račun je izdat");
+    await loadInvoiceList();
+    if (["receptionist", "admin"].includes(currentUser.role)) {
+      await loadFinanceSummary();
+      await loadOutstanding();
+    }
+  } catch (x) {
+    toast(x.message);
+  }
+};
+
+$("#serviceForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  d.price_rsd = parseInt(d.price_rsd, 10);
+  d.default_duration_minutes = d.default_duration_minutes ? parseInt(d.default_duration_minutes, 10) : null;
+  if (!d.category) delete d.category;
+  try {
+    await api("/api/finance/services", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    e.target.reset();
+    $("#serviceDialog").close();
+    toast("Usluga je dodata");
+    await loadServices();
+  } catch (x) {
+    toast(x.message);
+  }
+};
+$("#newServiceOpen").onclick = () => $("#serviceDialog").showModal();
+
+let paymentTargetInvoice = null;
+document.addEventListener("click", async (e) => {
+  const payBtn = e.target.closest(".invoice-pay");
+  if (payBtn) {
+    paymentTargetInvoice = payBtn.dataset.id;
+    $("#paymentBalanceHint").textContent = `Preostali dug: ${fmtMoney(payBtn.dataset.balance)}`;
+    $("#paymentForm [name=amount_rsd]").value = payBtn.dataset.balance;
+    $("#paymentDialog").showModal();
+    return;
+  }
+  const cancelBtn = e.target.closest(".invoice-cancel");
+  if (cancelBtn) {
+    const reason = prompt("Razlog otkazivanja računa:");
+    if (!reason) return;
+    try {
+      await api(`/api/finance/invoices/${cancelBtn.dataset.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled", cancellation_reason: reason }),
+      });
+      toast("Račun je otkazan");
+      await loadInvoiceList();
+      if (["receptionist", "admin"].includes(currentUser.role)) await loadOutstanding();
+    } catch (x) {
+      toast(x.message);
+    }
+    return;
+  }
+  const toggleBtn = e.target.closest(".service-toggle");
+  if (toggleBtn) {
+    const active = toggleBtn.dataset.active === "true";
+    try {
+      await api(`/api/finance/services/${toggleBtn.dataset.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active: !active }),
+      });
+      toast(active ? "Usluga je deaktivirana" : "Usluga je aktivirana");
+      await loadServices();
+    } catch (x) {
+      toast(x.message);
+    }
+  }
+});
+$("#paymentForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  d.amount_rsd = parseInt(d.amount_rsd, 10);
+  if (!d.note) delete d.note;
+  try {
+    await api(`/api/finance/invoices/${paymentTargetInvoice}/payments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    e.target.reset();
+    $("#paymentDialog").close();
+    toast("Uplata je evidentirana");
+    await loadInvoiceList();
+    await loadFinanceSummary();
+    await loadOutstanding();
+  } catch (x) {
+    toast(x.message);
+  }
+};

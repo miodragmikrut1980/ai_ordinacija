@@ -138,6 +138,32 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_reminders_org ON reminders(organization_id, status, send_at);
 CREATE INDEX IF NOT EXISTS idx_reminders_appointment ON reminders(appointment_id);
 
+CREATE TABLE IF NOT EXISTS services (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, active INTEGER NOT NULL,
+    created_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_services_org ON services(organization_id, active);
+
+CREATE TABLE IF NOT EXISTS invoices (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    invoice_number TEXT NOT NULL, status TEXT NOT NULL, issued_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_org ON invoices(organization_id, issued_at);
+CREATE INDEX IF NOT EXISTS idx_invoices_patient ON invoices(organization_id, patient_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_number ON invoices(organization_id, invoice_number);
+
+CREATE TABLE IF NOT EXISTS invoice_counters (
+    organization_id TEXT NOT NULL, year INTEGER NOT NULL, next_number INTEGER NOT NULL,
+    PRIMARY KEY (organization_id, year)
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, invoice_id TEXT NOT NULL,
+    paid_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_payments_org_date ON payments(organization_id, paid_at);
+
 CREATE TABLE IF NOT EXISTS reports (
     id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL, generated_at TEXT NOT NULL, data BLOB NOT NULL
 );
@@ -1139,6 +1165,189 @@ class PersistentStore:
                 "UPDATE reminders SET status='cancelled' WHERE organization_id=? AND appointment_id=? AND status='pending'",
                 (org, appointment_id),
             )
+
+    # -- finansije -------------------------------------------------------------
+    def create_service(self, org: str, p: ServiceCreate) -> ServiceRecord:
+        svc_id = str(uuid4())
+        blob = self._seal({"name": p.name, "price_rsd": p.price_rsd, "category": p.category, "default_duration_minutes": p.default_duration_minutes})
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO services(id,organization_id,active,created_at,data) VALUES (?,?,?,?,?)",
+                (svc_id, org, 1, _iso(_now()), blob),
+            )
+        return self.get_service(svc_id)
+
+    def _service_from_row(self, row) -> ServiceRecord:
+        payload = self._unseal(row["data"])
+        return ServiceRecord(id=row["id"], organization_id=row["organization_id"], active=bool(row["active"]), created_at=row["created_at"], **payload)
+
+    def get_service(self, svc_id: str) -> ServiceRecord | None:
+        row = self._one("SELECT * FROM services WHERE id=?", (svc_id,))
+        return self._service_from_row(row) if row else None
+
+    def list_services(self, org: str, include_inactive: bool = False) -> list[ServiceRecord]:
+        if include_inactive:
+            rows = self._all("SELECT * FROM services WHERE organization_id=? ORDER BY created_at", (org,))
+        else:
+            rows = self._all("SELECT * FROM services WHERE organization_id=? AND active=1 ORDER BY created_at", (org,))
+        return [self._service_from_row(r) for r in rows]
+
+    def update_service(self, org: str, svc_id: str, patch: dict) -> ServiceRecord | None:
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT data, active FROM services WHERE id=? AND organization_id=?", (svc_id, org)).fetchone()
+            if not row:
+                return None
+            payload = self._unseal(row["data"])
+            active = row["active"]
+            for field in ("name", "price_rsd", "category", "default_duration_minutes"):
+                if patch.get(field) is not None:
+                    payload[field] = patch[field]
+            if patch.get("active") is not None:
+                active = 1 if patch["active"] else 0
+            blob = self._seal(payload)
+            self._conn.execute("UPDATE services SET data=?, active=? WHERE id=?", (blob, active, svc_id))
+        return self.get_service(svc_id)
+
+    def _next_invoice_number(self, conn, org: str, year: int) -> str:
+        """Gapless, sequential per-organization-per-year numbering -- a real
+        precursor requirement for eventual fiscalization integration (see
+        notes on InvoiceRecord / the finance router). Runs inside the same
+        locked transaction as the invoice insert so two concurrent requests
+        can never be handed the same number."""
+        row = conn.execute("SELECT next_number FROM invoice_counters WHERE organization_id=? AND year=?", (org, year)).fetchone()
+        n = (row["next_number"] if row else 1)
+        if row:
+            conn.execute("UPDATE invoice_counters SET next_number=? WHERE organization_id=? AND year=?", (n + 1, org, year))
+        else:
+            conn.execute("INSERT INTO invoice_counters(organization_id, year, next_number) VALUES (?,?,?)", (org, year, n + 1))
+        return f"{year}-{n:06d}"
+
+    def create_invoice(self, org: str, p: InvoiceCreate, issued_by: str, issued_by_name: str) -> InvoiceRecord:
+        line_items = []
+        subtotal = 0
+        for item in p.line_items:
+            gross = item.unit_price_rsd * item.quantity
+            line_total = round(gross * (100 - item.discount_percent) / 100)
+            line_items.append({**item.model_dump(), "line_total_rsd": line_total})
+            subtotal += line_total
+        total = round(subtotal * (100 - p.discount_percent) / 100)
+        now = _now()
+        invoice_id = str(uuid4())
+        blob = self._seal({
+            "line_items": line_items, "subtotal_rsd": subtotal, "discount_percent": p.discount_percent,
+            "total_rsd": total, "paid_rsd": 0, "notes": p.notes, "cancellation_reason": None,
+            "issued_by": issued_by, "issued_by_name": issued_by_name, "appointment_id": p.appointment_id,
+        })
+        with self._lock, self._conn:
+            number = self._next_invoice_number(self._conn, org, now.year)
+            self._conn.execute(
+                "INSERT INTO invoices(id,organization_id,patient_id,invoice_number,status,issued_at,data) VALUES (?,?,?,?,?,?,?)",
+                (invoice_id, org, p.patient_id, number, "issued", _iso(now), blob),
+            )
+        return self.get_invoice(org, invoice_id)
+
+    def _invoice_from_row(self, row) -> InvoiceRecord:
+        payload = self._unseal(row["data"])
+        paid = payload.get("paid_rsd", 0)
+        total = payload["total_rsd"]
+        return InvoiceRecord(
+            id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+            invoice_number=row["invoice_number"], issued_at=row["issued_at"], status=row["status"],
+            balance_due_rsd=max(0, total - paid), **payload,
+        )
+
+    def get_invoice(self, org: str, invoice_id: str) -> InvoiceRecord | None:
+        row = self._one("SELECT * FROM invoices WHERE id=? AND organization_id=?", (invoice_id, org))
+        return self._invoice_from_row(row) if row else None
+
+    def list_invoices(self, org: str, patient_id: str | None = None, status: str | None = None) -> list[InvoiceRecord]:
+        q = "SELECT * FROM invoices WHERE organization_id=?"
+        params: list = [org]
+        if patient_id:
+            q += " AND patient_id=?"
+            params.append(patient_id)
+        if status:
+            q += " AND status=?"
+            params.append(status)
+        q += " ORDER BY issued_at DESC"
+        return [self._invoice_from_row(r) for r in self._all(q, tuple(params))]
+
+    def record_payment(self, org: str, invoice_id: str, p: PaymentCreate, recorded_by: str, recorded_by_name: str) -> PaymentRecord | None:
+        payment_id = str(uuid4())
+        now = _now()
+        blob = self._seal({"amount_rsd": p.amount_rsd, "method": p.method, "note": p.note, "recorded_by": recorded_by, "recorded_by_name": recorded_by_name})
+        with self._lock, self._conn:
+            inv_row = self._conn.execute("SELECT data, status FROM invoices WHERE id=? AND organization_id=?", (invoice_id, org)).fetchone()
+            if not inv_row:
+                return None
+            payload = self._unseal(inv_row["data"])
+            payload["paid_rsd"] = payload.get("paid_rsd", 0) + p.amount_rsd
+            new_status = "paid" if payload["paid_rsd"] >= payload["total_rsd"] else inv_row["status"]
+            self._conn.execute("UPDATE invoices SET data=?, status=? WHERE id=?", (self._seal(payload), new_status, invoice_id))
+            self._conn.execute(
+                "INSERT INTO payments(id,organization_id,invoice_id,paid_at,data) VALUES (?,?,?,?,?)",
+                (payment_id, org, invoice_id, _iso(now), blob),
+            )
+        row = self._one("SELECT * FROM payments WHERE id=?", (payment_id,))
+        return self._payment_from_row(row)
+
+    def _payment_from_row(self, row) -> PaymentRecord:
+        payload = self._unseal(row["data"])
+        return PaymentRecord(id=row["id"], organization_id=row["organization_id"], invoice_id=row["invoice_id"], paid_at=row["paid_at"], **payload)
+
+    def list_payments(self, org: str, invoice_id: str | None = None) -> list[PaymentRecord]:
+        if invoice_id:
+            rows = self._all("SELECT * FROM payments WHERE organization_id=? AND invoice_id=? ORDER BY paid_at", (org, invoice_id))
+        else:
+            rows = self._all("SELECT * FROM payments WHERE organization_id=? ORDER BY paid_at", (org,))
+        return [self._payment_from_row(r) for r in rows]
+
+    def cancel_invoice(self, org: str, invoice_id: str, reason: str) -> InvoiceRecord | None:
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT data FROM invoices WHERE id=? AND organization_id=?", (invoice_id, org)).fetchone()
+            if not row:
+                return None
+            payload = self._unseal(row["data"])
+            payload["cancellation_reason"] = reason
+            self._conn.execute("UPDATE invoices SET data=?, status='cancelled' WHERE id=?", (self._seal(payload), invoice_id))
+        return self.get_invoice(org, invoice_id)
+
+    def daily_finance_summary(self, org: str, day: str) -> DailyFinanceSummary:
+        """day is an ISO date 'YYYY-MM-DD'. Revenue is counted by when it was
+        actually collected (payment date), not invoice-issue date -- a
+        partially-paid invoice issued last week whose balance is settled
+        today counts as today's till, matching how a receptionist reading a
+        cash drawer at day's end would expect this number to behave."""
+        day_start = f"{day}T00:00:00"
+        day_end = f"{day}T23:59:59.999999"
+        payments = [p for p in self.list_payments(org) if day_start <= _iso(p.paid_at) <= day_end]
+        by_method: dict[str, int] = {}
+        for p in payments:
+            by_method[p.method] = by_method.get(p.method, 0) + p.amount_rsd
+        invoices = self.list_invoices(org)
+        issued_today = [i for i in invoices if day_start <= _iso(i.issued_at) <= day_end and i.status != "cancelled"]
+        outstanding_new = sum(i.balance_due_rsd for i in issued_today)
+        return DailyFinanceSummary(
+            date=day, invoices_issued=len(issued_today),
+            revenue_collected_rsd=sum(by_method.values()), revenue_by_method=by_method,
+            outstanding_new_rsd=outstanding_new,
+        )
+
+    def list_outstanding_invoices(self, org: str) -> list[OutstandingInvoice]:
+        names = {p.id: p.full_name for p in self.list_patients(org)}
+        now = _now()
+        out = []
+        for inv in self.list_invoices(org):
+            if inv.status in ("cancelled",) or inv.balance_due_rsd <= 0:
+                continue
+            days = (now - inv.issued_at).days
+            out.append(OutstandingInvoice(
+                invoice_id=inv.id, invoice_number=inv.invoice_number, patient_id=inv.patient_id,
+                patient_name=names.get(inv.patient_id, "Nepoznat pacijent"), issued_at=inv.issued_at,
+                total_rsd=inv.total_rsd, paid_rsd=inv.paid_rsd, balance_due_rsd=inv.balance_due_rsd,
+                days_outstanding=days,
+            ))
+        return sorted(out, key=lambda x: x.issued_at)
 
     # -- reports -------------------------------------------------------------
     def add_report(self, org: str, patient_id: str, title: str, content: str) -> GeneratedReport:

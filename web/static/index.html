@@ -30,6 +30,8 @@
             Kartoni pacijenata</button
           ><button class="nav-item" data-view="schedule">
             Današnji raspored</button
+          ><button class="nav-item" data-view="finance">
+            Finansije</button
           ><button class="nav-item" data-view="inbox">
             Pristigli dokumenti</button
           ><button class="nav-item doctor-only" data-view="radar">
@@ -374,6 +376,8 @@
                   ⬇ Izvoz kartona</button
                 ><button id="pdfReportBtn" class="button secondary">
                   Preuzmi medicinski PDF</button
+                ><button id="issueInvoiceBtn" class="button secondary">
+                  Izdaj račun</button
                 ><button id="reportBtn" class="button primary">
                   Generiši AI izveštaj
                 </button>
@@ -427,6 +431,49 @@
               <button class="button secondary" id="waitlistOpen">+ Dodaj na listu</button>
             </div>
             <div id="waitlistList" class="list"></div>
+          </section>
+        </section>
+        <section id="financeView" class="view hidden">
+          <section class="card panel till-only">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">DNEVNI PROMET</p>
+                <h3>Kasa ordinacije</h3>
+              </div>
+              <input type="date" id="financeDate" />
+            </div>
+            <div id="financeSummary" class="metric-grid finance-summary"></div>
+          </section>
+          <section class="card panel till-only">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">NEPLAĆENO</p>
+                <h3>Dugovanja</h3>
+              </div>
+            </div>
+            <div id="outstandingList" class="list"></div>
+          </section>
+          <section class="card panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">RAČUNI</p>
+                <h3>Poslednji izdati računi</h3>
+              </div>
+              <button class="button primary" id="newInvoiceOpen">+ Novi račun</button>
+            </div>
+            <div id="invoiceList" class="list"></div>
+          </section>
+          <section class="card panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">CENOVNIK</p>
+                <h3>Usluge ordinacije</h3>
+              </div>
+              <button class="button secondary admin-only" id="newServiceOpen">
+                + Nova usluga
+              </button>
+            </div>
+            <div id="serviceList" class="list"></div>
           </section>
         </section>
         <section id="inboxView" class="view hidden">
@@ -616,6 +663,58 @@
         <label>Soba<input name="room" placeholder="npr. Ordinacija 1" /></label>
         <p id="promoteConflict" class="field-error hidden"></p>
         <button class="button primary full">Potvrdi termin</button>
+      </form>
+    </dialog>
+    <dialog id="serviceDialog">
+      <form id="serviceForm">
+        <div class="dialog-head">
+          <h2>Nova usluga</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <label>Naziv usluge<input name="name" required maxlength="140" /></label>
+        <div class="form-two">
+          <label>Cena (RSD)<input name="price_rsd" type="number" min="0" step="50" required /></label
+          ><label>Kategorija<input name="category" placeholder="npr. Pregledi" /></label>
+        </div>
+        <label>Uobičajeno trajanje (min)<input name="default_duration_minutes" type="number" min="5" max="240" step="5" /></label>
+        <button class="button primary full">Sačuvaj uslugu</button>
+      </form>
+    </dialog>
+    <dialog id="invoiceDialog" class="wide-dialog">
+      <form id="invoiceForm">
+        <div class="dialog-head">
+          <h2>Novi račun</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <label>Pacijent<select name="patient_id" id="invoicePatient" required></select></label>
+        <div id="invoiceItems" class="invoice-items"></div>
+        <button type="button" class="button secondary" id="addInvoiceItem">+ Dodaj stavku</button>
+        <div class="form-two">
+          <label>Popust na ceo račun (%)<input name="discount_percent" type="number" min="0" max="100" value="0" /></label>
+          <label>Napomena<input name="notes" maxlength="500" /></label>
+        </div>
+        <div class="invoice-total-preview">
+          <span>Ukupno:</span><strong id="invoiceTotalPreview">0 RSD</strong>
+        </div>
+        <button class="button primary full">Izdaj račun</button>
+      </form>
+    </dialog>
+    <dialog id="paymentDialog">
+      <form id="paymentForm">
+        <div class="dialog-head">
+          <h2>Evidentiraj uplatu</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <p id="paymentBalanceHint" class="muted"></p>
+        <label>Iznos (RSD)<input name="amount_rsd" type="number" min="1" required /></label>
+        <label
+          >Način plaćanja<select name="method" required>
+            <option value="gotovina">Gotovina</option>
+            <option value="kartica">Kartica</option>
+            <option value="prenos">Prenos na račun</option>
+          </select></label
+        ><label>Napomena<input name="note" maxlength="200" /></label>
+        <button class="button primary full">Sačuvaj uplatu</button>
       </form>
     </dialog>
     <dialog id="passwordDialog">

@@ -185,3 +185,18 @@ body.dark .cal-popover select,body.dark .cal-popover input{background:#0e1f21;bo
 .cal-month-grid{grid-auto-rows:76px}
 .cal-day-head{font-size:9px;padding:8px 2px}
 }
+
+/* === Finansijsko-administrativni modul === */
+.finance-summary{grid-template-columns:repeat(3,1fr)}
+.invoice-row.cancelled strong{opacity:.55;text-decoration:line-through}
+.wide-dialog{width:min(640px,94vw)}
+.invoice-items{display:grid;gap:8px}
+.invoice-item-row{display:grid;grid-template-columns:1.4fr 1.4fr 60px 90px 70px 32px;gap:6px;align-items:center}
+.invoice-item-row select,.invoice-item-row input{border:1px solid #d7e2df;border-radius:9px;padding:8px;font-size:12px;width:100%;box-sizing:border-box}
+.invoice-item-row .ii-remove{width:30px;height:30px;font-size:16px;padding:0}
+.invoice-total-preview{display:flex;justify-content:space-between;align-items:center;padding:12px 4px;border-top:1px solid #e1eae8;font-size:14px}
+.invoice-total-preview strong{font-size:18px;color:#176b5c}
+body.dark .invoice-item-row select,body.dark .invoice-item-row input{background:#192a2d;border-color:#355055;color:#edf6f4}
+body.dark .invoice-total-preview{border-color:#294044}
+body.dark .invoice-total-preview strong{color:#56c2a4}
+@media(max-width:700px){.invoice-item-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto}.finance-summary{grid-template-columns:repeat(2,1fr)}}

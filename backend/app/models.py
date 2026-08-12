@@ -367,3 +367,109 @@ class DifferentialCandidateReview(BaseModel):
 class DifferentialReviewResult(BaseModel):
     analysis: DifferentialAnalysis
     scribe_draft_updated: bool = False
+
+
+# -- finansijsko-administrativni modul ------------------------------------
+# Sve novčane vrednosti su cele dinare (RSD nema fraktalne kovanice u
+# svakodnevnom prometu već godinama), čuvane kao int da se izbegnu greške
+# zaokruživanja koje bi float unosio u račune i dnevni promet.
+
+PaymentMethod = Literal["gotovina", "kartica", "prenos"]
+InvoiceStatus = Literal["draft", "issued", "paid", "cancelled"]
+
+class ServiceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=140)
+    price_rsd: int = Field(ge=0, le=10_000_000)
+    category: str | None = Field(default=None, max_length=80)
+    default_duration_minutes: int | None = Field(default=None, ge=5, le=240)
+
+class ServiceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=140)
+    price_rsd: int | None = Field(default=None, ge=0, le=10_000_000)
+    category: str | None = Field(default=None, max_length=80)
+    default_duration_minutes: int | None = Field(default=None, ge=5, le=240)
+    active: bool | None = None
+
+class ServiceRecord(BaseModel):
+    id: str
+    organization_id: str
+    name: str
+    price_rsd: int
+    category: str | None = None
+    default_duration_minutes: int | None = None
+    active: bool = True
+    created_at: datetime
+
+class InvoiceLineItemInput(BaseModel):
+    service_id: str | None = None
+    description: str = Field(min_length=1, max_length=200)
+    quantity: int = Field(default=1, ge=1, le=100)
+    unit_price_rsd: int = Field(ge=0, le=10_000_000)
+    discount_percent: int = Field(default=0, ge=0, le=100)
+
+class InvoiceLineItem(InvoiceLineItemInput):
+    line_total_rsd: int
+
+class InvoiceCreate(BaseModel):
+    patient_id: str
+    appointment_id: str | None = None
+    line_items: list[InvoiceLineItemInput] = Field(min_length=1, max_length=50)
+    discount_percent: int = Field(default=0, ge=0, le=100)
+    notes: str | None = Field(default=None, max_length=500)
+
+class InvoiceRecord(BaseModel):
+    id: str
+    organization_id: str
+    patient_id: str
+    appointment_id: str | None = None
+    invoice_number: str
+    issued_by: str
+    issued_by_name: str
+    issued_at: datetime
+    status: InvoiceStatus = "issued"
+    line_items: list[InvoiceLineItem]
+    subtotal_rsd: int
+    discount_percent: int = 0
+    total_rsd: int
+    paid_rsd: int = 0
+    balance_due_rsd: int
+    notes: str | None = None
+    cancellation_reason: str | None = None
+
+class PaymentCreate(BaseModel):
+    amount_rsd: int = Field(gt=0, le=10_000_000)
+    method: PaymentMethod
+    note: str | None = Field(default=None, max_length=200)
+
+class PaymentRecord(BaseModel):
+    id: str
+    organization_id: str
+    invoice_id: str
+    amount_rsd: int
+    method: PaymentMethod
+    paid_at: datetime
+    recorded_by: str
+    recorded_by_name: str
+    note: str | None = None
+
+class InvoiceStatusUpdate(BaseModel):
+    status: Literal["cancelled"]
+    cancellation_reason: str = Field(min_length=2, max_length=300)
+
+class DailyFinanceSummary(BaseModel):
+    date: str
+    invoices_issued: int
+    revenue_collected_rsd: int
+    revenue_by_method: dict[str, int]
+    outstanding_new_rsd: int
+
+class OutstandingInvoice(BaseModel):
+    invoice_id: str
+    invoice_number: str
+    patient_id: str
+    patient_name: str
+    issued_at: datetime
+    total_rsd: int
+    paid_rsd: int
+    balance_due_rsd: int
+    days_outstanding: int

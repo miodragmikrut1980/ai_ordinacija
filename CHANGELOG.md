@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.15.0
+
+- Dodat je finansijsko-administrativni modul: cenovnik usluga (samo admin
+  kreira/menja cene), izdavanje računa sa više stavki i popustom po stavci
+  i na ceo račun, evidentiranje uplata (gotovina/kartica/prenos) sa
+  delimičnim plaćanjem, dnevni promet po načinu plaćanja, i pregled
+  dugovanja sortiran po broju dana neplaćeno.
+- Brojevi računa su sekvencijalni i bez rupa po ordinaciji i godini
+  (`GGGG-000001`), generisani u istoj zaključanoj transakciji kao i sam
+  račun — to je preduslov za buduću integraciju sa fiskalizacijom, koju
+  ovaj modul namerno ne pokušava da simulira (izdavanje pravog fiskalnog
+  računa zahteva sertifikovan ESIR ili licenciranu API integraciju, isti
+  princip pouzdanosti kao kod SMS/Viber podsetnika: ne lažira se ono što
+  nije zaista urađeno).
+- Novčani iznosi se čuvaju kao celi dinari (int), ne float, da se izbegnu
+  greške zaokruživanja u ukupnim iznosima.
+- RBAC: cenovnik menja samo admin; račun mogu izdati lekar, recepcija i
+  admin (uobičajeno u maloj ordinaciji); uplate evidentiraju recepcija i
+  admin; otkazivanje računa (sa obaveznim razlogom) samo admin; dnevni
+  promet i dugovanja vidljivi samo recepciji i adminu.
+- Novi frontend prikaz „Finansije": kasa ordinacije, dugovanja, poslednji
+  računi i cenovnik, plus dugme „Izdaj račun" direktno iz kartona
+  pacijenta.
+- Novi test fajl `test_finance.py` (11 testova): obračun popusta,
+  sekvencijalna numeracija, delimično plaćanje, prekoračenje uplate,
+  otkazivanje, dnevni promet, dugovanja, RBAC, tenant izolacija.
+
 ## 1.14.0
 
 - Dodat je pravi kalendar ordinacije: nedeljni i mesečni prikaz termina

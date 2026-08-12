@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .logging_setup import access_logger, bind_request_id, configure_logging, new_request_id, reset_request_id
-from .routers import admin_tools, auth, clinical_ai, epidemiology, patients, scheduling
+from .routers import admin_tools, auth, clinical_ai, epidemiology, finance, patients, scheduling
 from .state import APP_VERSION, RATE_LIMIT_PER_MINUTE, SESSION_MINUTES, TRUST_PROXY_HEADERS, WEB_DIR, ai, store
 
 configure_logging()
@@ -18,6 +18,7 @@ app.mount('/static', StaticFiles(directory=WEB_DIR), name='static')
 app.include_router(auth.router)
 app.include_router(patients.router)
 app.include_router(scheduling.router)
+app.include_router(finance.router)
 app.include_router(epidemiology.router)
 app.include_router(clinical_ai.router)
 app.include_router(admin_tools.router)
