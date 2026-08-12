@@ -1,0 +1,37 @@
+# Template systemd unit for running the clinic assistant as a service on a
+# Linux host, without Docker. Copy to /etc/systemd/system/clinic-ai-assistant.service,
+# adjust the paths and User=, then:
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now clinic-ai-assistant
+#
+# Set CLINIC_ENCRYPTION_KEY via an EnvironmentFile (see below) rather than
+# inline in this unit file -- unit files under /etc/systemd/system are
+# often world-readable, an EnvironmentFile can be locked down to 0600.
+
+[Unit]
+Description=Clinic AI Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=clinic
+Group=clinic
+WorkingDirectory=/opt/clinic-ai-assistant
+EnvironmentFile=/opt/clinic-ai-assistant/.env.production
+Environment=CLINIC_ENV=production
+Environment=CLINIC_LOG_FORMAT=json
+ExecStart=/opt/clinic-ai-assistant/.venv/bin/uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=5
+
+# Basic hardening. Not a substitute for the reverse-proxy/TLS/firewall setup
+# a real deployment needs in front of this, but a reasonable floor.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/clinic-ai-assistant/data
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

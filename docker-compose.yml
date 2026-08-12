@@ -1,0 +1,41 @@
+services:
+  clinic-ai-assistant:
+    build: .
+    image: clinic-ai-assistant:1.13.0
+    ports:
+      - "8080:8080"
+    volumes:
+      # Named volume, not a bind mount to a plaintext host path, so the
+      # encrypted database and secret.key aren't casually browsable from
+      # the host filesystem by anything that isn't looking for them.
+      - clinic_data:/app/data
+    environment:
+      # Set this explicitly for anything beyond local evaluation -- see
+      # README.md and backend/app/crypto.py for why.
+      - CLINIC_ENCRYPTION_KEY=${CLINIC_ENCRYPTION_KEY:-}
+      - CLINIC_ENV=${CLINIC_ENV:?Set CLINIC_ENV=production for real data, or explicit demo for disposable evaluation}
+      # Mandatory on the first production start; never commit the password.
+      - CLINIC_BOOTSTRAP_ADMIN_USERNAME=${CLINIC_BOOTSTRAP_ADMIN_USERNAME:-}
+      - CLINIC_BOOTSTRAP_ADMIN_PASSWORD=${CLINIC_BOOTSTRAP_ADMIN_PASSWORD:-}
+      - CLINIC_BOOTSTRAP_ADMIN_NAME=${CLINIC_BOOTSTRAP_ADMIN_NAME:-Clinic Administrator}
+      - CLINIC_ORGANIZATION_NAME=${CLINIC_ORGANIZATION_NAME:-Private Clinic}
+      - CLINIC_SESSION_MINUTES=${CLINIC_SESSION_MINUTES:-60}
+      - CLINIC_RATE_LIMIT_PER_MINUTE=${CLINIC_RATE_LIMIT_PER_MINUTE:-240}
+      - CLINIC_LOG_FORMAT=${CLINIC_LOG_FORMAT:-json}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  clinic_data:

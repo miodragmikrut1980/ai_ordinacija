@@ -1,0 +1,11 @@
+data/
+*.db
+*.log
+*.key
+*.enc
+__pycache__/
+.pytest_cache/
+.review-venv/
+.venv/
+.clinic-venv/
+*.zip
