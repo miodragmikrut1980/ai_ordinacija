@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.16.0
+
+UX runda iz ugla svakodnevnog rada ordinacije, po povratnim informacijama
+sa terena: predug karton, previše AI dugmadi na jednom mestu, nejasne
+ikonice, raspored kao gola lista i nepostojeći pregled za recepciju.
+
+### Added
+- **Karton pacijenta podeljen na tabove**: Pregled, Dokumenti,
+  Laboratorija, Terapija, AI alati, Istorija — umesto jedne duge
+  stranice gde se sažetak, diferencijal, pisar, laboratorija, dokumenti
+  i istorija bore za pažnju. Tab „Laboratorija" dobija tačku upozorenja
+  kad postoji nacrt nalaza koji čeka potvrdu.
+- **Nov tab „Terapija"**: trenutna terapija, alergije i dijagnoze na
+  jednom mestu uz dugme za proveru interakcija — izdvojeno iz taba
+  Pregled da se smanji broj dugmadi vidljivih odjednom.
+- **Tab „AI alati"** okuplja diferencijalnu analizu, pisara, pripremu
+  pregleda i „Pitajte karton" na jednom mestu, sa kratkim uputstvom o
+  predloženom redosledu koraka — umesto da se svih pet AI akcija
+  takmiče za pažnju na glavnom pregledu kartona.
+- **Statusna traka inbox-a dokumenata**: „Spremno", „Potrebna
+  provera", „OCR neuspešan", „Čeka potvrdu laboratorije" (novo —
+  računa se prema tome da li dokument ima nacrt laboratorijskog nalaza
+  koji još nije potvrđen ili odbačen).
+- **Komandni centar za recepciju** na kontrolnoj tabli (vidljiv
+  recepciji i adminu): koliko je pacijenata stiglo, koliko kasni,
+  koliko termina je preostalo danas, koliko dokumenata čeka proveru, i
+  ko je sledeći pacijent na redu.
+
+### Changed
+- Nejasne ikonice u gornjoj traci zamenjene prepoznatljivim simbolima
+  sa tooltipovima: 🔑 za promenu lozinke, 🛡 za MFA, 🔍 za brzu
+  pretragu pacijenta, 🌓 za temu. Dugme za odjavu sada ima vidljiv
+  tekst „Odjava" umesto simbola bez ijednog opisa. Ispravljen je i
+  pravi bug: dugme za MFA i dugme za brzu pretragu su ranije delila
+  identičnu ⌘ ikonicu.
+
 ## 1.15.0
 
 - Dodat je finansijsko-administrativni modul: cenovnik usluga (samo admin

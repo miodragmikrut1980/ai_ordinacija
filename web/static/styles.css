@@ -200,3 +200,42 @@ body.dark .invoice-item-row select,body.dark .invoice-item-row input{background:
 body.dark .invoice-total-preview{border-color:#294044}
 body.dark .invoice-total-preview strong{color:#56c2a4}
 @media(max-width:700px){.invoice-item-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto}.finance-summary{grid-template-columns:repeat(2,1fr)}}
+
+/* === v1.16.0: UX pass — tabovi kartona, jasnije ikonice, komandni centar === */
+.icon-button.text-icon{width:auto;padding:0 12px;font-size:12px;font-weight:750;white-space:nowrap}
+
+/* --- Tabovi kartona pacijenta --- */
+.chart-tabs{display:flex;gap:4px;border-bottom:1px solid #dfe9e6;margin-bottom:22px;overflow-x:auto}
+.chart-tab{border:0;background:transparent;padding:12px 16px;font-size:13px;font-weight:700;color:#5a7a77;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+.chart-tab.active{color:#176b5c;border-bottom-color:#176b5c}
+.chart-tab .tab-flag{display:inline-block;width:7px;height:7px;border-radius:50%;background:#b34b3f;margin-left:6px;vertical-align:middle}
+.chart-tab-panel{display:none}
+.chart-tab-panel.active{display:block}
+.ai-workflow-hint{background:#eef7f4;border-left:4px solid #176b5c;border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:12.5px;color:#2d4d47;line-height:1.6}
+body.dark .ai-workflow-hint{background:#17282b}
+
+/* --- Komandni centar recepcije --- */
+.command-center{background:#fff;border:1px solid #dfe9e6;border-radius:18px;box-shadow:0 10px 30px rgba(19,50,53,.05);padding:22px;margin-bottom:22px}
+.command-center .panel-head{margin-bottom:14px}
+.command-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px}
+.command-stat{background:#f3f7f6;border-radius:12px;padding:14px;text-align:center}
+.command-stat strong{display:block;font-size:24px;color:#176b5c}
+.command-stat span{font-size:11px;color:#718985;text-transform:uppercase;letter-spacing:.06em}
+.command-stat.warn strong{color:#b34b3f}
+.command-next{background:#eef7f4;border-radius:12px;padding:14px 16px;font-size:13px;color:#2d4d47}
+.command-next strong{color:#176b5c}
+body.dark .command-center{background:#142326;border-color:#294044}
+body.dark .command-stat{background:#0e1f21}
+body.dark .command-next{background:#17282b}
+@media(max-width:900px){.command-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* --- Statusna traka inbox-a dokumenata --- */
+.inbox-status{font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.inbox-status.ready{background:#e7f5f0;color:#1b8067}
+.inbox-status.attention{background:#fff0df;color:#a65c19}
+.inbox-status.failed{background:#fbeaea;color:#8c2f26}
+.inbox-status.pending-lab{background:#eef1fb;color:#3949a6}
+body.dark .inbox-status.ready{background:#173129;color:#a9dcc8}
+body.dark .inbox-status.attention{background:#332711;color:#e8bd7f}
+body.dark .inbox-status.failed{background:#3a1f1d;color:#f0b9b2}
+body.dark .inbox-status.pending-lab{background:#1e2140;color:#aab4f0}

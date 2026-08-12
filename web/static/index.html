@@ -1,995 +1,757 @@
-<!doctype html>
+<!DOCTYPE html>
+
 <html lang="sr-Latn">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>AI asistent za ordinacije</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <button
-        id="navToggle"
-        class="nav-toggle"
-        aria-label="Meni"
-        aria-expanded="false"
-      >
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>AI asistent za ordinacije</title>
+<link href="/static/styles.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="app-shell">
+<button aria-expanded="false" aria-label="Meni" class="nav-toggle" id="navToggle">
         ☰
       </button>
-      <div id="navBackdrop" class="nav-backdrop"></div>
-      <aside class="sidebar" id="sidebar">
-        <div class="brand">
-          <div class="brand-mark">C</div>
-          <div>
-            <strong>Ordinacija AI</strong><span>AI podrška ordinaciji</span>
-          </div>
-        </div>
-        <nav>
-          <button class="nav-item active" data-view="dashboard">Početna</button
-          ><button class="nav-item" data-view="workspace">
-            Kartoni pacijenata</button
-          ><button class="nav-item" data-view="schedule">
-            Današnji raspored</button
-          ><button class="nav-item" data-view="finance">
-            Finansije</button
-          ><button class="nav-item" data-view="inbox">
-            Pristigli dokumenti</button
-          ><button class="nav-item doctor-only" data-view="radar">
-            Epidemiološki radar</button
-          ><button class="nav-item" data-view="reports">Arhiva izveštaja</button
-          ><button class="nav-item doctor-only" data-view="audit">
-            Evidencija aktivnosti</button
-          ><button class="nav-item admin-only" data-view="users">
+<div class="nav-backdrop" id="navBackdrop"></div>
+<aside class="sidebar" id="sidebar">
+<div class="brand">
+<div class="brand-mark">C</div>
+<div>
+<strong>Ordinacija AI</strong><span>AI podrška ordinaciji</span>
+</div>
+</div>
+<nav>
+<button class="nav-item active" data-view="dashboard">Početna</button><button class="nav-item" data-view="workspace">
+            Kartoni pacijenata</button><button class="nav-item" data-view="schedule">
+            Današnji raspored</button><button class="nav-item" data-view="finance">
+            Finansije</button><button class="nav-item" data-view="inbox">
+            Pristigli dokumenti</button><button class="nav-item doctor-only" data-view="radar">
+            Epidemiološki radar</button><button class="nav-item" data-view="reports">Arhiva izveštaja</button><button class="nav-item doctor-only" data-view="audit">
+            Evidencija aktivnosti</button><button class="nav-item admin-only" data-view="users">
             Korisnici
           </button>
-        </nav>
-        <div class="shortcut-card">
-          <b class="kbd">Ctrl</b> + <b class="kbd">K</b
-          ><span>Brzi izbor pacijenta</span>
-        </div>
-        <div class="privacy-card">
-          <strong>Lokalni radni prostor</strong>
-          <p>
+</nav>
+<div class="shortcut-card">
+<b class="kbd">Ctrl</b> + <b class="kbd">K</b><span>Brzi izbor pacijenta</span>
+</div>
+<div class="privacy-card">
+<strong>Lokalni radni prostor</strong>
+<p>
             Podaci pacijenata ostaju na ovom računaru. Svaki AI rezultat zahteva
             proveru lekara.
           </p>
-        </div>
-      </aside>
-      <main>
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">RADNI PROSTOR PRIVATNE ORDINACIJE</p>
-            <h1 id="pageTitle">Kontrolna tabla lekara</h1>
-          </div>
-          <div class="top-actions">
-            <div class="user-chip">
-              <div>
-                <strong id="currentUser">—</strong
-                ><small id="currentRole"></small
-                ><small id="currentClinic"></small>
-              </div>
-              <button
-                id="passwordBtn"
-                class="icon-button"
-                title="Promeni lozinku"
-              >
-                ⌁</button
-              ><button id="mfaBtn" class="icon-button" title="Višefaktorska prijava">⌘</button
-              ><button id="logoutBtn" class="icon-button">↪</button>
-            </div>
-            <button
-              id="topQuickSearchBtn"
-              class="icon-button"
-              title="Brzi izbor pacijenta (Ctrl+K)"
-            >
-              ⌘</button
-            ><button id="themeBtn" class="icon-button">◐</button>
-            <div class="status">
-              <span></span><b id="provider">Provera AI veze…</b>
-            </div>
-          </div>
-        </header>
-        <section id="dashboardView" class="view">
-          <div id="setupBanner" class="setup-banner hidden"></div>
-          <div id="redFlagBanner" class="red-flag-banner hidden"></div>
-          <div id="epiBanner" class="epi-banner hidden"></div>
-          <div class="metric-grid">
-            <article class="metric-card">
-              <span>Današnji termini</span><strong id="mAppointments">0</strong>
-            </article>
-            <article class="metric-card">
-              <span>Prijavljeni pacijenti</span><strong id="mChecked">0</strong>
-            </article>
-            <article class="metric-card attention">
-              <span>Potrebna pažnja</span><strong id="mAttention">0</strong>
-            </article>
-            <article class="metric-card">
-              <span>Izveštaji ove nedelje</span><strong id="mReports">0</strong>
-            </article>
-          </div>
-          <div class="two-col">
-            <section class="card panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">DANAS</p>
-                  <h3>Sledeći pacijenti</h3>
-                </div>
-                <button id="addAppointmentBtn" class="button primary">
+</div>
+</aside>
+<main>
+<header class="topbar">
+<div>
+<p class="eyebrow">RADNI PROSTOR PRIVATNE ORDINACIJE</p>
+<h1 id="pageTitle">Kontrolna tabla lekara</h1>
+</div>
+<div class="top-actions">
+<div class="user-chip">
+<div>
+<strong id="currentUser">—</strong><small id="currentRole"></small><small id="currentClinic"></small>
+</div>
+<button class="icon-button" id="passwordBtn" title="Promeni lozinku">
+                🔑</button><button class="icon-button" id="mfaBtn" title="Višefaktorska prijava (MFA)">🛡</button><button class="icon-button text-icon" id="logoutBtn" title="Odjavi se">Odjava</button>
+</div>
+<button class="icon-button" id="topQuickSearchBtn" title="Brzi izbor pacijenta (Ctrl+K)">
+              🔍</button><button class="icon-button" id="themeBtn" title="Promeni temu (svetla/tamna)">🌓</button>
+<div class="status">
+<span></span><b id="provider">Provera AI veze…</b>
+</div>
+</div>
+</header>
+<section class="view" id="dashboardView">
+<div class="setup-banner hidden" id="setupBanner"></div>
+<div class="command-center till-only hidden" id="commandCenter">
+<div class="panel-head">
+<div><p class="eyebrow">RECEPCIJA · DANAS</p><h3>Komandni centar</h3></div>
+</div>
+<div class="command-grid">
+<div class="command-stat"><strong id="ccArrived">0</strong><span>Stigli</span></div>
+<div class="command-stat warn"><strong id="ccLate">0</strong><span>Kasne</span></div>
+<div class="command-stat"><strong id="ccWaiting">0</strong><span>Preostalo danas</span></div>
+<div class="command-stat warn"><strong id="ccDocsAttention">0</strong><span>Dokumenti čekaju</span></div>
+</div>
+<div class="command-next" id="ccNext"></div>
+</div>
+<div class="red-flag-banner hidden" id="redFlagBanner"></div>
+<div class="epi-banner hidden" id="epiBanner"></div>
+<div class="metric-grid">
+<article class="metric-card">
+<span>Današnji termini</span><strong id="mAppointments">0</strong>
+</article>
+<article class="metric-card">
+<span>Prijavljeni pacijenti</span><strong id="mChecked">0</strong>
+</article>
+<article class="metric-card attention">
+<span>Potrebna pažnja</span><strong id="mAttention">0</strong>
+</article>
+<article class="metric-card">
+<span>Izveštaji ove nedelje</span><strong id="mReports">0</strong>
+</article>
+</div>
+<div class="two-col">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">DANAS</p>
+<h3>Sledeći pacijenti</h3>
+</div>
+<button class="button primary" id="addAppointmentBtn">
                   + Termin
                 </button>
-              </div>
-              <div id="dashboardSchedule" class="list"></div>
-            </section>
-            <section class="card panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">TRIJAŽA</p>
-                  <h3>Dokumenti za proveru</h3>
-                </div>
-              </div>
-              <div id="dashboardAttention" class="list"></div>
-            </section>
-          </div>
-        </section>
-        <section id="workspaceView" class="view hidden">
-          <section class="toolbar card">
-            <select id="patientSelect">
-              <option value="">Izaberite pacijenta</option></select
-            ><button id="quickOpenBtn" class="button secondary" title="Ctrl+K">
-              ⌘ Brza pretraga</button
-            ><button id="newPatientBtn" class="button secondary">
-              + Novi pacijent</button
-            ><label class="button primary upload"
-              >Dodaj dokument<input
-                id="fileInput"
-                type="file"
-                accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
-                hidden
-            /></label>
-          </section>
-          <div id="uploadProgress" class="upload-progress hidden">
-            <div></div>
-            <span>Čitanje i obrada dokumenta…</span>
-          </div>
-          <section id="emptyState" class="empty-state card">
-            <div class="empty-icon">✦</div>
-            <h2>Kreirajte ili izaberite pacijenta</h2>
-            <p>
+</div>
+<div class="list" id="dashboardSchedule"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">TRIJAŽA</p>
+<h3>Dokumenti za proveru</h3>
+</div>
+</div>
+<div class="list" id="dashboardAttention"></div>
+</section>
+</div>
+</section>
+<section class="view hidden" id="workspaceView">
+<section class="toolbar card">
+<select id="patientSelect">
+<option value="">Izaberite pacijenta</option></select><button class="button secondary" id="quickOpenBtn" title="Ctrl+K">
+              ⌘ Brza pretraga</button><button class="button secondary" id="newPatientBtn">
+              + Novi pacijent</button><label class="button primary upload">Dodaj dokument<input accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp" hidden="" id="fileInput" type="file"/></label>
+</section>
+<div class="upload-progress hidden" id="uploadProgress">
+<div></div>
+<span>Čitanje i obrada dokumenta…</span>
+</div>
+<section class="empty-state card" id="emptyState">
+<div class="empty-icon">✦</div>
+<h2>Kreirajte ili izaberite pacijenta</h2>
+<p>
               Dodajte medicinsku dokumentaciju kako biste dobili pregled povezan
               sa izvorima.
             </p>
-          </section>
-          <section id="workspace" class="workspace hidden">
-            <div class="patient-banner card">
-              <div>
-                <p class="eyebrow">AKTIVNI PACIJENT</p>
-                <h2 id="patientName">—</h2>
-                <p id="patientMeta" class="muted"></p>
-                <div id="safetyStrip" class="safety-strip"></div>
-              </div>
-              <div class="metrics">
-                <div>
-                  <strong id="docCount">0</strong><span>Dokumenti</span>
-                </div>
-                <div>
-                  <strong id="labCount">0</strong><span>Laboratorija</span>
-                </div>
-                <div>
-                  <strong id="timelineCount">0</strong><span>Tok lečenja</span>
-                </div>
-                <div>
-                  <strong id="readiness">Empty</strong><span>Status</span>
-                </div>
-              </div>
-            </div>
-            <div class="clinical-grid">
-              <section class="card panel doctor-only">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">STRUKTURISANI KARTON</p>
-                    <h3>Klinički profil</h3>
-                  </div>
-                  <div class="report-actions">
-                    <button id="safetyCheckBtn" class="button secondary">
-                      Proveri terapiju</button
-                    ><button id="editProfileBtn" class="button secondary">
+</section>
+<section class="workspace hidden" id="workspace"><div class="patient-banner card">
+<div>
+<p class="eyebrow">AKTIVNI PACIJENT</p>
+<h2 id="patientName">—</h2>
+<p class="muted" id="patientMeta"></p>
+<div class="safety-strip" id="safetyStrip"></div>
+</div>
+<div class="metrics">
+<div>
+<strong id="docCount">0</strong><span>Dokumenti</span>
+</div>
+<div>
+<strong id="labCount">0</strong><span>Laboratorija</span>
+</div>
+<div>
+<strong id="timelineCount">0</strong><span>Tok lečenja</span>
+</div>
+<div>
+<strong id="readiness">Empty</strong><span>Status</span>
+</div>
+</div>
+</div><div class="chart-tabs"><button class="chart-tab active" data-tab="pregled" type="button">Pregled</button><button class="chart-tab" data-tab="dokumenti" type="button">Dokumenti</button><button class="chart-tab" data-tab="laboratorija" type="button">Laboratorija<span class="tab-flag hidden" id="labTabFlag"></span></button><button class="chart-tab" data-tab="terapija" type="button">Terapija</button><button class="chart-tab" data-tab="ai" type="button">AI alati</button><button class="chart-tab" data-tab="istorija" type="button">Istorija</button></div><div class="chart-tab-panel active" data-tab-panel="pregled"><div class="clinical-grid">
+<section class="card panel doctor-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">STRUKTURISANI KARTON</p>
+<h3>Klinički profil</h3>
+</div>
+<div class="report-actions">
+<button class="button secondary" id="editProfileBtn">
                       Izmeni
                     </button>
-                  </div>
-                </div>
-                <div id="clinicalProfile" class="profile-grid"></div>
-              </section>
-              <section class="card panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">PREGLEDI</p>
-                    <h3>Strukturisani pregledi</h3>
-                  </div>
-                  <button id="newEncounterBtn" class="button primary">
+</div>
+</div>
+<div class="profile-grid" id="clinicalProfile"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">PREGLEDI</p>
+<h3>Strukturisani pregledi</h3>
+</div>
+<button class="button primary" id="newEncounterBtn">
                     + Novi pregled
                   </button>
+</div>
+<div class="list" id="encountersList"></div>
+</section>
+</div><section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">AI PREGLED</p>
+<h3>Klinički sažetak</h3>
+</div>
+<button class="icon-button" id="refreshSummary">↻</button>
+</div>
+<div class="content-box placeholder" id="summary">
+                  Dodajte dokumentaciju da biste dobili sažetak.
                 </div>
-                <div id="encountersList" class="list"></div>
-              </section>
-            </div>
-            <section class="card panel doctor-only">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">STRUKTURISANA LABORATORIJA</p>
-                  <h3>Nalazi i trendovi</h3>
+<div class="review-note">
+                  AI nacrt · proveriti prema izvornim dokumentima
                 </div>
-                <span class="badge">Nacrti zahtevaju potvrdu lekara</span>
-              </div>
-              <div id="labResults" class="list"></div>
-              <div class="review-note">
+</section></div><div class="chart-tab-panel" data-tab-panel="dokumenti"><section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">IZVORNA DOKUMENTACIJA</p>
+<h3>Dokumenti</h3>
+</div>
+</div>
+<div class="list" id="documents"></div>
+</section></div><div class="chart-tab-panel" data-tab-panel="laboratorija"><section class="card panel doctor-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">STRUKTURISANA LABORATORIJA</p>
+<h3>Nalazi i trendovi</h3>
+</div>
+<span class="badge">Nacrti zahtevaju potvrdu lekara</span>
+</div>
+<div class="list" id="labResults"></div>
+<div class="review-note">
                 Vrednosti prepoznate iz dokumenta nisu deo zvaničnog kartona dok
                 ih lekar ne proveri prema originalnom nalazu.
               </div>
-            </section>
-            <section class="card panel differential-panel doctor-only">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">AI DIFERENCIJALNA ANALIZA</p>
-                  <h3>Stanja sa najvećim podudaranjem</h3>
-                </div>
-                <button id="generateDifferentialBtn" class="button primary">
-                  Analiziraj nalaze i istoriju
-                </button>
-              </div>
-              <p class="muted">
-                Transparentna pomoć lekaru na osnovu kartona, laboratorije,
-                pregleda i epidemioloških trendova ordinacije.
-              </p>
-              <div id="differentialResults" class="content-box placeholder">
-                Pokrenite analizu nakon unosa relevantnih podataka.
-              </div>
-              <div id="differentialEpi" class="hidden"></div>
-              <div id="differentialDisclaimer" class="review-note">
-                Stepen podudaranja nije verovatnoća dijagnoze i ne zamenjuje
-                kliničku procenu.
-              </div>
-            </section>
-            <section class="card panel scribe-panel doctor-only">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">AI MEDICINSKI PISAR</p>
-                  <h3>Razgovor u strukturisani pregled</h3>
-                </div>
-                <button id="openScribeBtn" class="button primary">
-                  Započni unos
-                </button>
-              </div>
-              <p class="muted">
-                Unesite transkript razgovora ili diktat lekara. AI pravi nacrt
-                na srpskom latinicom koji lekar mora da proveri i potvrdi.
-              </p>
-              <div id="scribeList" class="list"></div>
-              <div class="review-note">
-                Nacrt se nikada ne upisuje automatski kao konačan medicinski
-                nalaz
-              </div>
-            </section>
-            <section class="card panel briefing-panel">
-              <div class="panel-head">
-                <div>
-                  <p class="eyebrow">PRIPREMA PRE PREGLEDA</p>
-                  <h3>AI priprema pregleda</h3>
-                </div>
-                <button id="generateBriefingBtn" class="button primary">
+</section></div><div class="chart-tab-panel" data-tab-panel="terapija">
+<section class="card panel doctor-only">
+<div class="panel-head">
+<div><p class="eyebrow">TRENUTNA TERAPIJA I ALERGIJE</p><h3>Pregled terapije</h3></div>
+<div class="report-actions">
+<button class="button primary" id="safetyCheckBtn">Proveri terapiju</button>
+</div>
+</div>
+<div class="profile-grid" id="therapyOverview"></div>
+<div class="review-note">Za izmenu terapije ili alergija koristite „Izmeni" u tabu Pregled — Klinički profil.</div>
+</section>
+</div><div class="chart-tab-panel" data-tab-panel="ai"><div class="ai-workflow-hint"><strong>Predloženi tok:</strong> 1) Generišite AI pripremu pre dolaska pacijenta → 2) Koristite AI pisara tokom ili nakon razgovora → 3) Ako je potrebno, pokrenite diferencijalnu analizu → 4) Pitajte karton za brze odgovore tokom pregleda.</div><section class="card panel briefing-panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">PRIPREMA PRE PREGLEDA</p>
+<h3>AI priprema pregleda</h3>
+</div>
+<button class="button primary" id="generateBriefingBtn">
                   Generiši pripremu
                 </button>
-              </div>
-              <p class="muted">
+</div>
+<p class="muted">
                 Strukturisana priprema na osnovu kliničkog profila, prethodnih
                 pregleda i dokumentacije.
               </p>
-              <div id="briefingEmpty" class="content-box placeholder">
+<div class="content-box placeholder" id="briefingEmpty">
                 Generišite pripremu pre dolaska pacijenta.
               </div>
-              <div id="briefingContent" class="briefing-grid hidden"></div>
-              <div class="review-note">
+<div class="briefing-grid hidden" id="briefingContent"></div>
+<div class="review-note">
                 Pomoć pri pripremi · proverite svaku stavku sa pacijentom i
                 izvornom dokumentacijom
               </div>
-            </section>
-            <div class="grid">
-              <section class="card panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">AI PREGLED</p>
-                    <h3>Klinički sažetak</h3>
-                  </div>
-                  <button id="refreshSummary" class="icon-button">↻</button>
-                </div>
-                <div id="summary" class="content-box placeholder">
-                  Dodajte dokumentaciju da biste dobili sažetak.
-                </div>
-                <div class="review-note">
-                  AI nacrt · proveriti prema izvornim dokumentima
-                </div>
-              </section>
-              <section class="card panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">IZVORNA DOKUMENTACIJA</p>
-                    <h3>Dokumenti</h3>
-                  </div>
-                </div>
-                <div id="documents" class="list"></div>
-              </section>
-              <section class="card panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">PITANJA O KARTONU</p>
-                    <h3>Pitajte karton</h3>
-                  </div>
-                </div>
-                <div class="quick-questions">
-                  <button
-                    data-question="Summarize current therapies and medications."
-                  >
-                    Trenutne terapije</button
-                  ><button
-                    data-question="List important abnormal laboratory findings."
-                  >
-                    Odstupanja u laboratoriji</button
-                  ><button
-                    data-question="What information is missing from this record?"
-                  >
+</section><section class="card panel scribe-panel doctor-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">AI MEDICINSKI PISAR</p>
+<h3>Razgovor u strukturisani pregled</h3>
+</div>
+<button class="button primary" id="openScribeBtn">
+                  Započni unos
+                </button>
+</div>
+<p class="muted">
+                Unesite transkript razgovora ili diktat lekara. AI pravi nacrt
+                na srpskom latinicom koji lekar mora da proveri i potvrdi.
+              </p>
+<div class="list" id="scribeList"></div>
+<div class="review-note">
+                Nacrt se nikada ne upisuje automatski kao konačan medicinski
+                nalaz
+              </div>
+</section><section class="card panel differential-panel doctor-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">AI DIFERENCIJALNA ANALIZA</p>
+<h3>Stanja sa najvećim podudaranjem</h3>
+</div>
+<button class="button primary" id="generateDifferentialBtn">
+                  Analiziraj nalaze i istoriju
+                </button>
+</div>
+<p class="muted">
+                Transparentna pomoć lekaru na osnovu kartona, laboratorije,
+                pregleda i epidemioloških trendova ordinacije.
+              </p>
+<div class="content-box placeholder" id="differentialResults">
+                Pokrenite analizu nakon unosa relevantnih podataka.
+              </div>
+<div class="hidden" id="differentialEpi"></div>
+<div class="review-note" id="differentialDisclaimer">
+                Stepen podudaranja nije verovatnoća dijagnoze i ne zamenjuje
+                kliničku procenu.
+              </div>
+</section><section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">PITANJA O KARTONU</p>
+<h3>Pitajte karton</h3>
+</div>
+</div>
+<div class="quick-questions">
+<button data-question="Summarize current therapies and medications.">
+                    Trenutne terapije</button><button data-question="List important abnormal laboratory findings.">
+                    Odstupanja u laboratoriji</button><button data-question="What information is missing from this record?">
                     Podaci koji nedostaju
                   </button>
-                </div>
-                <div id="chat" class="chat">
-                  <div class="assistant-msg">
+</div>
+<div class="chat" id="chat">
+<div class="assistant-msg">
                     Pitajte o terapijama, datumima, laboratorijskim vrednostima
                     ili ranijim nalazima.
                   </div>
-                </div>
-                <form id="chatForm" class="chat-form">
-                  <input
-                    id="question"
-                    placeholder="Kada je CRP poslednji put bio povišen?"
-                  /><button class="button primary">Pitaj</button>
-                </form>
-              </section>
-              <section class="card panel">
-                <div class="panel-head">
-                  <div>
-                    <p class="eyebrow">ISTORIJA LEČENJA</p>
-                    <h3>Tok lečenja pacijenta</h3>
-                  </div>
-                </div>
-                <div id="timeline" class="timeline"></div>
-              </section>
-            </div>
-            <section class="card report-bar">
-              <div>
-                <p class="eyebrow">IZLAZ ZA LEKARA</p>
-                <h3>Generišite izveštaj spreman za proveru</h3>
-              </div>
-              <div class="report-actions">
-                <button
-                  id="exportPatientBtn"
-                  class="button secondary"
-                  title="Kompletan karton kao ZIP (JSON + CSV + dokumenti)"
-                >
-                  ⬇ Izvoz kartona</button
-                ><button id="pdfReportBtn" class="button secondary">
-                  Preuzmi medicinski PDF</button
-                ><button id="issueInvoiceBtn" class="button secondary">
-                  Izdaj račun</button
-                ><button id="reportBtn" class="button primary">
+</div>
+<form class="chat-form" id="chatForm">
+<input id="question" placeholder="Kada je CRP poslednji put bio povišen?"/><button class="button primary">Pitaj</button>
+</form>
+</section></div><div class="chart-tab-panel" data-tab-panel="istorija"><section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">ISTORIJA LEČENJA</p>
+<h3>Tok lečenja pacijenta</h3>
+</div>
+</div>
+<div class="timeline" id="timeline"></div>
+</section></div><section class="card report-bar">
+<div>
+<p class="eyebrow">IZLAZ ZA LEKARA</p>
+<h3>Generišite izveštaj spreman za proveru</h3>
+</div>
+<div class="report-actions">
+<button class="button secondary" id="exportPatientBtn" title="Kompletan karton kao ZIP (JSON + CSV + dokumenti)">
+                  ⬇ Izvoz kartona</button><button class="button secondary" id="pdfReportBtn">
+                  Preuzmi medicinski PDF</button><button class="button secondary" id="issueInvoiceBtn">
+                  Izdaj račun</button><button class="button primary" id="reportBtn">
                   Generiši AI izveštaj
                 </button>
-              </div>
-            </section>
-            <section id="reportWrap" class="card report-wrap hidden">
-              <div class="panel-head">
-                <h3>Generisani izveštaj</h3>
-                <button id="copyReport" class="button secondary">
+</div>
+</section><section class="card report-wrap hidden" id="reportWrap">
+<div class="panel-head">
+<h3>Generisani izveštaj</h3>
+<button class="button secondary" id="copyReport">
                   Kopiraj
                 </button>
-              </div>
-              <pre id="report" class="report"></pre>
-            </section>
-          </section>
-        </section>
-        <section id="scheduleView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head calendar-toolbar">
-              <div>
-                <p class="eyebrow">TOK ORDINACIJE</p>
-                <h3 id="calendarRangeLabel">Kalendar</h3>
-              </div>
-              <div class="calendar-controls">
-                <div class="calendar-nav">
-                  <button type="button" id="calPrev" class="icon-button" title="Prethodni period">‹</button>
-                  <button type="button" id="calToday" class="button secondary">Danas</button>
-                  <button type="button" id="calNext" class="icon-button" title="Sledeći period">›</button>
-                </div>
-                <select id="calClinicianFilter" title="Filtriraj po lekaru">
-                  <option value="">Svi lekari</option>
-                </select>
-                <div class="calendar-view-toggle" role="tablist">
-                  <button type="button" class="cal-view-btn active" data-view="week">Nedelja</button>
-                  <button type="button" class="cal-view-btn" data-view="month">Mesec</button>
-                  <button type="button" class="cal-view-btn" data-view="list">Lista</button>
-                </div>
-                <button class="button primary appointment-open">+ Termin</button>
-              </div>
-            </div>
-            <div id="calendarWeek" class="calendar-week"></div>
-            <div id="calendarMonth" class="calendar-month hidden"></div>
-            <div id="scheduleList" class="list hidden"></div>
-          </section>
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">AKO NEMA SLOBODNOG TERMINA</p>
-                <h3>Lista čekanja</h3>
-              </div>
-              <button class="button secondary" id="waitlistOpen">+ Dodaj na listu</button>
-            </div>
-            <div id="waitlistList" class="list"></div>
-          </section>
-        </section>
-        <section id="financeView" class="view hidden">
-          <section class="card panel till-only">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">DNEVNI PROMET</p>
-                <h3>Kasa ordinacije</h3>
-              </div>
-              <input type="date" id="financeDate" />
-            </div>
-            <div id="financeSummary" class="metric-grid finance-summary"></div>
-          </section>
-          <section class="card panel till-only">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">NEPLAĆENO</p>
-                <h3>Dugovanja</h3>
-              </div>
-            </div>
-            <div id="outstandingList" class="list"></div>
-          </section>
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">RAČUNI</p>
-                <h3>Poslednji izdati računi</h3>
-              </div>
-              <button class="button primary" id="newInvoiceOpen">+ Novi račun</button>
-            </div>
-            <div id="invoiceList" class="list"></div>
-          </section>
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">CENOVNIK</p>
-                <h3>Usluge ordinacije</h3>
-              </div>
-              <button class="button secondary admin-only" id="newServiceOpen">
+</div>
+<pre class="report" id="report"></pre>
+</section></section>
+</section>
+<section class="view hidden" id="scheduleView">
+<section class="card panel">
+<div class="panel-head calendar-toolbar">
+<div>
+<p class="eyebrow">TOK ORDINACIJE</p>
+<h3 id="calendarRangeLabel">Kalendar</h3>
+</div>
+<div class="calendar-controls">
+<div class="calendar-nav">
+<button class="icon-button" id="calPrev" title="Prethodni period" type="button">‹</button>
+<button class="button secondary" id="calToday" type="button">Danas</button>
+<button class="icon-button" id="calNext" title="Sledeći period" type="button">›</button>
+</div>
+<select id="calClinicianFilter" title="Filtriraj po lekaru">
+<option value="">Svi lekari</option>
+</select>
+<div class="calendar-view-toggle" role="tablist">
+<button class="cal-view-btn active" data-view="week" type="button">Nedelja</button>
+<button class="cal-view-btn" data-view="month" type="button">Mesec</button>
+<button class="cal-view-btn" data-view="list" type="button">Lista</button>
+</div>
+<button class="button primary appointment-open">+ Termin</button>
+</div>
+</div>
+<div class="calendar-week" id="calendarWeek"></div>
+<div class="calendar-month hidden" id="calendarMonth"></div>
+<div class="list hidden" id="scheduleList"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">AKO NEMA SLOBODNOG TERMINA</p>
+<h3>Lista čekanja</h3>
+</div>
+<button class="button secondary" id="waitlistOpen">+ Dodaj na listu</button>
+</div>
+<div class="list" id="waitlistList"></div>
+</section>
+</section>
+<section class="view hidden" id="financeView">
+<section class="card panel till-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">DNEVNI PROMET</p>
+<h3>Kasa ordinacije</h3>
+</div>
+<input id="financeDate" type="date"/>
+</div>
+<div class="metric-grid finance-summary" id="financeSummary"></div>
+</section>
+<section class="card panel till-only">
+<div class="panel-head">
+<div>
+<p class="eyebrow">NEPLAĆENO</p>
+<h3>Dugovanja</h3>
+</div>
+</div>
+<div class="list" id="outstandingList"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">RAČUNI</p>
+<h3>Poslednji izdati računi</h3>
+</div>
+<button class="button primary" id="newInvoiceOpen">+ Novi račun</button>
+</div>
+<div class="list" id="invoiceList"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">CENOVNIK</p>
+<h3>Usluge ordinacije</h3>
+</div>
+<button class="button secondary admin-only" id="newServiceOpen">
                 + Nova usluga
               </button>
-            </div>
-            <div id="serviceList" class="list"></div>
-          </section>
-        </section>
-        <section id="inboxView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">TRIJAŽA DOKUMENATA</p>
-                <h3>Pristigli nalazi</h3>
-              </div>
-            </div>
-            <div id="inboxList" class="list"></div>
-          </section>
-        </section>
-        <section id="radarView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">ZBIRNI SIGNALI ORDINACIJE</p>
-                <h3>AI epidemiološki radar</h3>
-              </div>
-              <select id="radarPeriod">
-                <option value="7">Poslednjih 7 dana</option>
-                <option value="14">Poslednjih 14 dana</option>
-                <option value="30">Poslednjih 30 dana</option>
-              </select>
-            </div>
-            <div id="radarSummary" class="content-box placeholder">
+</div>
+<div class="list" id="serviceList"></div>
+</section>
+</section>
+<section class="view hidden" id="inboxView">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">TRIJAŽA DOKUMENATA</p>
+<h3>Pristigli nalazi</h3>
+</div>
+</div>
+<div class="list" id="inboxList"></div>
+</section>
+</section>
+<section class="view hidden" id="radarView">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">ZBIRNI SIGNALI ORDINACIJE</p>
+<h3>AI epidemiološki radar</h3>
+</div>
+<select id="radarPeriod">
+<option value="7">Poslednjih 7 dana</option>
+<option value="14">Poslednjih 14 dana</option>
+<option value="30">Poslednjih 30 dana</option>
+</select>
+</div>
+<div class="content-box placeholder" id="radarSummary">
               Učitavanje zbirnih trendova…
             </div>
-            <div id="radarChart" class="chart-card"></div>
-            <div class="radar-grid">
-              <div>
-                <h3>Simptomi u porastu</h3>
-                <div id="syndromeTrends" class="list"></div>
-              </div>
-              <div>
-                <h3>Potvrđeni patogeni</h3>
-                <div id="confirmedPathogens" class="list"></div>
-              </div>
-              <div>
-                <h3>Mogući klasteri</h3>
-                <div id="clusterSignals" class="list"></div>
-              </div>
-            </div>
-            <div id="radarDisclaimer" class="review-note"></div>
-          </section>
-        </section>
-        <section id="auditView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">ODGOVORNOST</p>
-                <h3>Evidencija aktivnosti</h3>
-              </div>
-              <button
-                id="exportClinicBtn"
-                class="button secondary"
-                title="CSV izvoz za inspekciju ili knjigovodstvo"
-              >
+<div class="chart-card" id="radarChart"></div>
+<div class="radar-grid">
+<div>
+<h3>Simptomi u porastu</h3>
+<div class="list" id="syndromeTrends"></div>
+</div>
+<div>
+<h3>Potvrđeni patogeni</h3>
+<div class="list" id="confirmedPathogens"></div>
+</div>
+<div>
+<h3>Mogući klasteri</h3>
+<div class="list" id="clusterSignals"></div>
+</div>
+</div>
+<div class="review-note" id="radarDisclaimer"></div>
+</section>
+</section>
+<section class="view hidden" id="auditView">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">ODGOVORNOST</p>
+<h3>Evidencija aktivnosti</h3>
+</div>
+<button class="button secondary" id="exportClinicBtn" title="CSV izvoz za inspekciju ili knjigovodstvo">
                 ⬇ Izvoz podataka ordinacije
               </button>
-            </div>
-            <div id="auditList"></div>
-          </section>
-        </section>
-        <section id="usersView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">KONTROLA PRISTUPA</p>
-                <h3>Korisnici ordinacije</h3>
-              </div>
-              <button id="newUserBtn" class="button primary">+ Korisnik</button>
-            </div>
-            <div id="usersList" class="list"></div>
-          </section>
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">BEZBEDNOST NALOGA</p>
-                <h3>Aktivne sesije</h3>
-              </div>
-            </div>
-            <div id="sessionsList" class="list"></div>
-          </section>
-        </section>
-        <section id="reportsView" class="view hidden">
-          <section class="card panel">
-            <div class="panel-head">
-              <div>
-                <p class="eyebrow">IZLAZ ZA LEKARA</p>
-                <h3>Arhiva izveštaja</h3>
-              </div>
-            </div>
-            <div id="reportsList" class="list"></div>
-          </section>
-        </section>
-      </main>
-    </div>
-    <dialog id="patientDialog">
-      <form id="patientForm">
-        <div class="dialog-head">
-          <h2>Kreiraj pacijenta</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Ime i prezime<input name="full_name" required minlength="2" /></label
-        ><label>Datum rođenja<input name="date_of_birth" type="date" /></label
-        ><label>Telefon<input name="phone" /></label
-        ><label>E-mail<input name="email" type="email" /></label
-        ><button class="button primary full">Kreiraj pacijenta</button>
-      </form>
-    </dialog>
-    <dialog id="appointmentDialog">
-      <form id="appointmentForm">
-        <div class="dialog-head">
-          <h2>Zakaži termin</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Pacijent<select
-            name="patient_id"
-            id="appointmentPatient"
-            required
-          ></select></label
-        ><label
-          >Datum i vreme<input
-            name="starts_at"
-            id="appointmentStartsAt"
-            type="datetime-local"
-            required /></label
-        ><div class="form-two">
-          <label
-            >Lekar<select name="clinician_id" id="appointmentClinician">
-              <option value="">Nije dodeljen</option>
-            </select></label
-          ><label
-            >Trajanje (min)<input
-              name="duration_minutes"
-              id="appointmentDuration"
-              type="number"
-              min="5"
-              max="240"
-              step="5"
-              value="20" /></label
-        ></div>
-        <div class="form-two">
-          <label>Soba<input name="room" id="appointmentRoom" placeholder="npr. Ordinacija 1" /></label
-          ><label>Tip usluge<input name="service_type" placeholder="npr. Kontrolni pregled" /></label>
-        </div>
-        <label>Razlog<input name="reason" required /></label
-        ><label>Napomena<input name="notes" /></label
-        ><p id="appointmentConflict" class="field-error hidden"></p>
-        <button class="button primary full">Zakaži</button>
-      </form>
-    </dialog>
-    <dialog id="waitlistDialog">
-      <form id="waitlistForm">
-        <div class="dialog-head">
-          <h2>Dodaj na listu čekanja</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label>Pacijent<select name="patient_id" id="waitlistPatient" required></select></label>
-        <label>Željena usluga<input name="desired_service" placeholder="npr. Kontrolni pregled" /></label>
-        <label
-          >Lekar (opciono)<select name="clinician_id" id="waitlistClinician">
-            <option value="">Bilo koji</option>
-          </select></label
-        ><label>Napomena<input name="preferred_note" placeholder="npr. ujutru sledeće nedelje" /></label>
-        <button class="button primary full">Dodaj na listu</button>
-      </form>
-    </dialog>
-    <dialog id="promoteDialog">
-      <form id="promoteForm">
-        <div class="dialog-head">
-          <h2>Zakaži sa liste čekanja</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label>Datum i vreme<input name="starts_at" type="datetime-local" required /></label>
-        <div class="form-two">
-          <label
-            >Lekar<select name="clinician_id" id="promoteClinician">
-              <option value="">Nije dodeljen</option>
-            </select></label
-          ><label>Trajanje (min)<input name="duration_minutes" type="number" min="5" max="240" step="5" value="20" /></label>
-        </div>
-        <label>Soba<input name="room" placeholder="npr. Ordinacija 1" /></label>
-        <p id="promoteConflict" class="field-error hidden"></p>
-        <button class="button primary full">Potvrdi termin</button>
-      </form>
-    </dialog>
-    <dialog id="serviceDialog">
-      <form id="serviceForm">
-        <div class="dialog-head">
-          <h2>Nova usluga</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label>Naziv usluge<input name="name" required maxlength="140" /></label>
-        <div class="form-two">
-          <label>Cena (RSD)<input name="price_rsd" type="number" min="0" step="50" required /></label
-          ><label>Kategorija<input name="category" placeholder="npr. Pregledi" /></label>
-        </div>
-        <label>Uobičajeno trajanje (min)<input name="default_duration_minutes" type="number" min="5" max="240" step="5" /></label>
-        <button class="button primary full">Sačuvaj uslugu</button>
-      </form>
-    </dialog>
-    <dialog id="invoiceDialog" class="wide-dialog">
-      <form id="invoiceForm">
-        <div class="dialog-head">
-          <h2>Novi račun</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label>Pacijent<select name="patient_id" id="invoicePatient" required></select></label>
-        <div id="invoiceItems" class="invoice-items"></div>
-        <button type="button" class="button secondary" id="addInvoiceItem">+ Dodaj stavku</button>
-        <div class="form-two">
-          <label>Popust na ceo račun (%)<input name="discount_percent" type="number" min="0" max="100" value="0" /></label>
-          <label>Napomena<input name="notes" maxlength="500" /></label>
-        </div>
-        <div class="invoice-total-preview">
-          <span>Ukupno:</span><strong id="invoiceTotalPreview">0 RSD</strong>
-        </div>
-        <button class="button primary full">Izdaj račun</button>
-      </form>
-    </dialog>
-    <dialog id="paymentDialog">
-      <form id="paymentForm">
-        <div class="dialog-head">
-          <h2>Evidentiraj uplatu</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <p id="paymentBalanceHint" class="muted"></p>
-        <label>Iznos (RSD)<input name="amount_rsd" type="number" min="1" required /></label>
-        <label
-          >Način plaćanja<select name="method" required>
-            <option value="gotovina">Gotovina</option>
-            <option value="kartica">Kartica</option>
-            <option value="prenos">Prenos na račun</option>
-          </select></label
-        ><label>Napomena<input name="note" maxlength="200" /></label>
-        <button class="button primary full">Sačuvaj uplatu</button>
-      </form>
-    </dialog>
-    <dialog id="passwordDialog">
-      <form id="passwordForm">
-        <div class="dialog-head">
-          <h2>Promeni lozinku</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Trenutna lozinka<input
-            name="current_password"
-            type="password"
-            required /></label
-        ><label
-          >Nova lozinka<input
-            name="new_password"
-            type="password"
-            minlength="8"
-            required /></label
-        ><button class="button primary full">Sačuvaj lozinku</button>
-      </form>
-    </dialog>
-    <dialog id="mfaDialog">
-      <form id="mfaForm">
-        <div class="dialog-head"><h2>Višefaktorska prijava</h2><button type="button" class="icon-button close">×</button></div>
-        <p id="mfaState" class="muted">Dodajte nalog u autentikator aplikaciju, zatim potvrdite šestocifreni kod. Tajna se prikazuje samo tokom podešavanja.</p>
-        <div id="mfaSecretBox" class="hidden"><label>Tajni ključ<input id="mfaSecret" readonly autocomplete="off" /></label><p class="muted">U autentikator aplikaciji izaberite „ručni unos ključa“, vremenski kod, 6 cifara.</p></div>
-        <label>Kod iz autentikator aplikacije<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
-        <button id="mfaPrimaryBtn" class="button primary full">Započni podešavanje</button>
-        <button id="mfaDisableBtn" type="button" class="button secondary full hidden">Isključi višefaktorsku prijavu</button>
-      </form>
-    </dialog>
-    <dialog id="userDialog">
-      <form id="userForm">
-        <div class="dialog-head">
-          <h2>Kreiraj korisnika ordinacije</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label>Korisničko ime<input name="username" required /></label
-        ><label>Ime i prezime<input name="full_name" required /></label
-        ><label
-          >Uloga<select name="role">
-            <option value="doctor">Lekar</option>
-            <option value="receptionist">Recepcionar</option>
-            <option value="admin">Administrator</option>
-          </select></label
-        ><label
-          >Privremena lozinka<input
-            name="password"
-            type="password"
-            minlength="8"
-            required /></label
-        ><button class="button primary full">Kreiraj korisnika</button>
-      </form>
-    </dialog>
-    <dialog id="profileDialog">
-      <form id="profileForm">
-        <div class="dialog-head">
-          <h2>Klinički profil</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Krvna grupa<input name="blood_type" placeholder="e.g. A+" /></label
-        ><label
-          >Alergije<textarea
-            name="allergies"
-            placeholder="Jedna stavka po redu"
-          ></textarea></label
-        ><label
-          >Trenutne terapije<textarea
-            name="current_medications"
-            placeholder="Jedna stavka po redu"
-          ></textarea></label
-        ><label
-          >Dijagnoze<textarea
-            name="diagnoses"
-            placeholder="Jedna stavka po redu"
-          ></textarea></label
-        ><label
-          >Lična anamneza<textarea name="medical_history"></textarea></label
-        ><label
-          >Porodična anamneza<textarea name="family_history"></textarea></label
-        ><label
-          >Socijalna anamneza<textarea name="social_history"></textarea></label
-        ><button class="button primary full">Sačuvaj profil</button>
-      </form>
-    </dialog>
-    <dialog id="medicationSafetyDialog">
-      <form id="medicationSafetyForm">
-        <div class="dialog-head">
-          <h2>Provera terapije i alergija</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <p class="muted">
+</div>
+<div id="auditList"></div>
+</section>
+</section>
+<section class="view hidden" id="usersView">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">KONTROLA PRISTUPA</p>
+<h3>Korisnici ordinacije</h3>
+</div>
+<button class="button primary" id="newUserBtn">+ Korisnik</button>
+</div>
+<div class="list" id="usersList"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">BEZBEDNOST NALOGA</p>
+<h3>Aktivne sesije</h3>
+</div>
+</div>
+<div class="list" id="sessionsList"></div>
+</section>
+</section>
+<section class="view hidden" id="reportsView">
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">IZLAZ ZA LEKARA</p>
+<h3>Arhiva izveštaja</h3>
+</div>
+</div>
+<div class="list" id="reportsList"></div>
+</section>
+</section>
+</main>
+</div>
+<dialog id="patientDialog">
+<form id="patientForm">
+<div class="dialog-head">
+<h2>Kreiraj pacijenta</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Ime i prezime<input minlength="2" name="full_name" required=""/></label><label>Datum rođenja<input name="date_of_birth" type="date"/></label><label>Telefon<input name="phone"/></label><label>E-mail<input name="email" type="email"/></label><button class="button primary full">Kreiraj pacijenta</button>
+</form>
+</dialog>
+<dialog id="appointmentDialog">
+<form id="appointmentForm">
+<div class="dialog-head">
+<h2>Zakaži termin</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Pacijent<select id="appointmentPatient" name="patient_id" required=""></select></label><label>Datum i vreme<input id="appointmentStartsAt" name="starts_at" required="" type="datetime-local"/></label><div class="form-two">
+<label>Lekar<select id="appointmentClinician" name="clinician_id">
+<option value="">Nije dodeljen</option>
+</select></label><label>Trajanje (min)<input id="appointmentDuration" max="240" min="5" name="duration_minutes" step="5" type="number" value="20"/></label></div>
+<div class="form-two">
+<label>Soba<input id="appointmentRoom" name="room" placeholder="npr. Ordinacija 1"/></label><label>Tip usluge<input name="service_type" placeholder="npr. Kontrolni pregled"/></label>
+</div>
+<label>Razlog<input name="reason" required=""/></label><label>Napomena<input name="notes"/></label><p class="field-error hidden" id="appointmentConflict"></p>
+<button class="button primary full">Zakaži</button>
+</form>
+</dialog>
+<dialog id="waitlistDialog">
+<form id="waitlistForm">
+<div class="dialog-head">
+<h2>Dodaj na listu čekanja</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Pacijent<select id="waitlistPatient" name="patient_id" required=""></select></label>
+<label>Željena usluga<input name="desired_service" placeholder="npr. Kontrolni pregled"/></label>
+<label>Lekar (opciono)<select id="waitlistClinician" name="clinician_id">
+<option value="">Bilo koji</option>
+</select></label><label>Napomena<input name="preferred_note" placeholder="npr. ujutru sledeće nedelje"/></label>
+<button class="button primary full">Dodaj na listu</button>
+</form>
+</dialog>
+<dialog id="promoteDialog">
+<form id="promoteForm">
+<div class="dialog-head">
+<h2>Zakaži sa liste čekanja</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Datum i vreme<input name="starts_at" required="" type="datetime-local"/></label>
+<div class="form-two">
+<label>Lekar<select id="promoteClinician" name="clinician_id">
+<option value="">Nije dodeljen</option>
+</select></label><label>Trajanje (min)<input max="240" min="5" name="duration_minutes" step="5" type="number" value="20"/></label>
+</div>
+<label>Soba<input name="room" placeholder="npr. Ordinacija 1"/></label>
+<p class="field-error hidden" id="promoteConflict"></p>
+<button class="button primary full">Potvrdi termin</button>
+</form>
+</dialog>
+<dialog id="serviceDialog">
+<form id="serviceForm">
+<div class="dialog-head">
+<h2>Nova usluga</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Naziv usluge<input maxlength="140" name="name" required=""/></label>
+<div class="form-two">
+<label>Cena (RSD)<input min="0" name="price_rsd" required="" step="50" type="number"/></label><label>Kategorija<input name="category" placeholder="npr. Pregledi"/></label>
+</div>
+<label>Uobičajeno trajanje (min)<input max="240" min="5" name="default_duration_minutes" step="5" type="number"/></label>
+<button class="button primary full">Sačuvaj uslugu</button>
+</form>
+</dialog>
+<dialog class="wide-dialog" id="invoiceDialog">
+<form id="invoiceForm">
+<div class="dialog-head">
+<h2>Novi račun</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Pacijent<select id="invoicePatient" name="patient_id" required=""></select></label>
+<div class="invoice-items" id="invoiceItems"></div>
+<button class="button secondary" id="addInvoiceItem" type="button">+ Dodaj stavku</button>
+<div class="form-two">
+<label>Popust na ceo račun (%)<input max="100" min="0" name="discount_percent" type="number" value="0"/></label>
+<label>Napomena<input maxlength="500" name="notes"/></label>
+</div>
+<div class="invoice-total-preview">
+<span>Ukupno:</span><strong id="invoiceTotalPreview">0 RSD</strong>
+</div>
+<button class="button primary full">Izdaj račun</button>
+</form>
+</dialog>
+<dialog id="paymentDialog">
+<form id="paymentForm">
+<div class="dialog-head">
+<h2>Evidentiraj uplatu</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<p class="muted" id="paymentBalanceHint"></p>
+<label>Iznos (RSD)<input min="1" name="amount_rsd" required="" type="number"/></label>
+<label>Način plaćanja<select name="method" required="">
+<option value="gotovina">Gotovina</option>
+<option value="kartica">Kartica</option>
+<option value="prenos">Prenos na račun</option>
+</select></label><label>Napomena<input maxlength="200" name="note"/></label>
+<button class="button primary full">Sačuvaj uplatu</button>
+</form>
+</dialog>
+<dialog id="passwordDialog">
+<form id="passwordForm">
+<div class="dialog-head">
+<h2>Promeni lozinku</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Trenutna lozinka<input name="current_password" required="" type="password"/></label><label>Nova lozinka<input minlength="8" name="new_password" required="" type="password"/></label><button class="button primary full">Sačuvaj lozinku</button>
+</form>
+</dialog>
+<dialog id="mfaDialog">
+<form id="mfaForm">
+<div class="dialog-head"><h2>Višefaktorska prijava</h2><button class="icon-button close" type="button">×</button></div>
+<p class="muted" id="mfaState">Dodajte nalog u autentikator aplikaciju, zatim potvrdite šestocifreni kod. Tajna se prikazuje samo tokom podešavanja.</p>
+<div class="hidden" id="mfaSecretBox"><label>Tajni ključ<input autocomplete="off" id="mfaSecret" readonly=""/></label><p class="muted">U autentikator aplikaciji izaberite „ručni unos ključa“, vremenski kod, 6 cifara.</p></div>
+<label>Kod iz autentikator aplikacije<input autocomplete="one-time-code" inputmode="numeric" maxlength="6" name="code" pattern="[0-9]{6}" required=""/></label>
+<button class="button primary full" id="mfaPrimaryBtn">Započni podešavanje</button>
+<button class="button secondary full hidden" id="mfaDisableBtn" type="button">Isključi višefaktorsku prijavu</button>
+</form>
+</dialog>
+<dialog id="userDialog">
+<form id="userForm">
+<div class="dialog-head">
+<h2>Kreiraj korisnika ordinacije</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Korisničko ime<input name="username" required=""/></label><label>Ime i prezime<input name="full_name" required=""/></label><label>Uloga<select name="role">
+<option value="doctor">Lekar</option>
+<option value="receptionist">Recepcionar</option>
+<option value="admin">Administrator</option>
+</select></label><label>Privremena lozinka<input minlength="8" name="password" required="" type="password"/></label><button class="button primary full">Kreiraj korisnika</button>
+</form>
+</dialog>
+<dialog id="profileDialog">
+<form id="profileForm">
+<div class="dialog-head">
+<h2>Klinički profil</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Krvna grupa<input name="blood_type" placeholder="e.g. A+"/></label><label>Alergije<textarea name="allergies" placeholder="Jedna stavka po redu"></textarea></label><label>Trenutne terapije<textarea name="current_medications" placeholder="Jedna stavka po redu"></textarea></label><label>Dijagnoze<textarea name="diagnoses" placeholder="Jedna stavka po redu"></textarea></label><label>Lična anamneza<textarea name="medical_history"></textarea></label><label>Porodična anamneza<textarea name="family_history"></textarea></label><label>Socijalna anamneza<textarea name="social_history"></textarea></label><button class="button primary full">Sačuvaj profil</button>
+</form>
+</dialog>
+<dialog id="medicationSafetyDialog">
+<form id="medicationSafetyForm">
+<div class="dialog-head">
+<h2>Provera terapije i alergija</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<p class="muted">
           Upišite predložene lekove, jedan po redu. Provera je ograničena i
           prikazuje potencijalne rizike; lekar proverava važeći izvor pre
           odluke.
         </p>
-        <label
-          >Predložena terapija<textarea
-            name="proposed_medications"
-            rows="6"
-            placeholder="npr. ibuprofen 400 mg"
-          ></textarea></label
-        ><button class="button primary full">Pokreni proveru</button>
-        <div id="medicationSafetyResults" class="content-box hidden"></div>
-      </form>
-    </dialog>
-    <dialog id="encounterDialog">
-      <form id="encounterForm">
-        <div class="dialog-head">
-          <h2>Strukturisani pregled</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Datum i vreme pregleda<input
-            name="visit_date"
-            type="datetime-local"
-            required /></label
-        ><label
-          >Glavni razlog dolaska<input name="chief_complaint" required /></label
-        ><label>Anamneza<textarea name="anamnesis"></textarea></label
-        ><label
-          >Objektivni pregled<textarea name="examination"></textarea></label
-        ><label>Procena<textarea name="assessment"></textarea></label
-        ><label>Plan lečenja<textarea name="plan"></textarea></label>
-        <div class="form-two">
-          <label
-            >Krvni pritisak (mmHg)<input
-              name="bp"
-              placeholder="120/80"
-              inputmode="numeric" /></label
-          ><label
-            >Puls (/min)<input
-              name="pulse"
-              placeholder="60–100"
-              inputmode="numeric" /></label
-          ><label
-            >Temperatura (°C)<input
-              name="temperature"
-              placeholder="36,6"
-              inputmode="decimal" /></label
-          ><label
-            >SpO₂ (%)<input name="spo2" placeholder="≥95" inputmode="numeric"
-          /></label>
-        </div>
-        <button class="button primary full">Sačuvaj pregled</button>
-      </form>
-    </dialog>
-    <dialog id="scribeEditDialog">
-      <form id="scribeEditForm">
-        <div class="dialog-head">
-          <h2>Pregled i potvrda AI nacrta</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <input type="hidden" name="draft_id" /><label
-          >Glavni razlog dolaska<input name="chief_complaint" /></label
-        ><label>Anamneza<textarea name="anamnesis" rows="5"></textarea></label
-        ><label
-          >Objektivni pregled<textarea
-            name="examination"
-            rows="4"
-          ></textarea></label
-        ><label>Procena<textarea name="assessment" rows="4"></textarea></label
-        ><label>Plan lečenja<textarea name="plan" rows="4"></textarea></label
-        ><label
-          >Promene terapije za proveru<textarea
-            name="medication_changes"
-            rows="3"
-            placeholder="Jedna stavka po redu"
-          ></textarea></label
-        ><label
-          >Alergije za proveru<textarea
-            name="allergy_updates"
-            rows="3"
-            placeholder="Jedna stavka po redu"
-          ></textarea></label
-        ><label
-          >Podaci koji nedostaju<textarea
-            name="missing_information"
-            rows="3"
-            placeholder="Jedna stavka po redu"
-          ></textarea>
-        </label>
-        <div class="review-note">
+<label>Predložena terapija<textarea name="proposed_medications" placeholder="npr. ibuprofen 400 mg" rows="6"></textarea></label><button class="button primary full">Pokreni proveru</button>
+<div class="content-box hidden" id="medicationSafetyResults"></div>
+</form>
+</dialog>
+<dialog id="encounterDialog">
+<form id="encounterForm">
+<div class="dialog-head">
+<h2>Strukturisani pregled</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Datum i vreme pregleda<input name="visit_date" required="" type="datetime-local"/></label><label>Glavni razlog dolaska<input name="chief_complaint" required=""/></label><label>Anamneza<textarea name="anamnesis"></textarea></label><label>Objektivni pregled<textarea name="examination"></textarea></label><label>Procena<textarea name="assessment"></textarea></label><label>Plan lečenja<textarea name="plan"></textarea></label>
+<div class="form-two">
+<label>Krvni pritisak (mmHg)<input inputmode="numeric" name="bp" placeholder="120/80"/></label><label>Puls (/min)<input inputmode="numeric" name="pulse" placeholder="60–100"/></label><label>Temperatura (°C)<input inputmode="decimal" name="temperature" placeholder="36,6"/></label><label>SpO₂ (%)<input inputmode="numeric" name="spo2" placeholder="≥95"/></label>
+</div>
+<button class="button primary full">Sačuvaj pregled</button>
+</form>
+</dialog>
+<dialog id="scribeEditDialog">
+<form id="scribeEditForm">
+<div class="dialog-head">
+<h2>Pregled i potvrda AI nacrta</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<input name="draft_id" type="hidden"/><label>Glavni razlog dolaska<input name="chief_complaint"/></label><label>Anamneza<textarea name="anamnesis" rows="5"></textarea></label><label>Objektivni pregled<textarea name="examination" rows="4"></textarea></label><label>Procena<textarea name="assessment" rows="4"></textarea></label><label>Plan lečenja<textarea name="plan" rows="4"></textarea></label><label>Promene terapije za proveru<textarea name="medication_changes" placeholder="Jedna stavka po redu" rows="3"></textarea></label><label>Alergije za proveru<textarea name="allergy_updates" placeholder="Jedna stavka po redu" rows="3"></textarea></label><label>Podaci koji nedostaju<textarea name="missing_information" placeholder="Jedna stavka po redu" rows="3"></textarea>
+</label>
+<div class="review-note">
           AI nacrt nije zvaničan medicinski zapis dok ga lekar ne pregleda i
           potvrdi.
         </div>
-        <div class="report-actions">
-          <button type="submit" class="button secondary">Sačuvaj izmene</button
-          ><button
-            type="button"
-            id="approveAndCreateEncounter"
-            class="button primary"
-          >
+<div class="report-actions">
+<button class="button secondary" type="submit">Sačuvaj izmene</button><button class="button primary" id="approveAndCreateEncounter" type="button">
             Potvrdi i kreiraj pregled
           </button>
-        </div>
-      </form>
-    </dialog>
-    <dialog id="scribeDialog">
-      <form id="scribeForm">
-        <div class="dialog-head">
-          <h2>AI medicinski pisar</h2>
-          <button type="button" class="icon-button close">×</button>
-        </div>
-        <label
-          >Režim<select name="mode">
-            <option value="dictation">Diktat lekara</option>
-            <option value="consultation">Razgovor lekar–pacijent</option>
-          </select></label
-        ><label
-          >Transkript<textarea
-            name="transcript"
-            rows="12"
-            minlength="10"
-            required
-            placeholder="Nalepite transkript ili unesite diktat na srpskom..."
-          ></textarea></label
-        ><button class="button primary full">Generiši nacrt pregleda</button>
-      </form>
-    </dialog>
-    <div id="loginOverlay" class="login-overlay">
-      <form id="loginForm" class="card login-card">
-        <p class="eyebrow">BEZBEDAN RADNI PROSTOR ORDINACIJE</p>
-        <h1>Prijava</h1>
-        <p class="muted">
+</div>
+</form>
+</dialog>
+<dialog id="scribeDialog">
+<form id="scribeForm">
+<div class="dialog-head">
+<h2>AI medicinski pisar</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Režim<select name="mode">
+<option value="dictation">Diktat lekara</option>
+<option value="consultation">Razgovor lekar–pacijent</option>
+</select></label><label>Transkript<textarea minlength="10" name="transcript" placeholder="Nalepite transkript ili unesite diktat na srpskom..." required="" rows="12"></textarea></label><button class="button primary full">Generiši nacrt pregleda</button>
+</form>
+</dialog>
+<div class="login-overlay" id="loginOverlay">
+<form class="card login-card" id="loginForm">
+<p class="eyebrow">BEZBEDAN RADNI PROSTOR ORDINACIJE</p>
+<h1>Prijava</h1>
+<p class="muted">
           Pristup prema ulozi štiti kartone pacijenata i beleži svaku važnu
           aktivnost.
         </p>
-        <label
-          >Oznaka ordinacije<input
-            name="organization"
-            autocomplete="organization"
-            placeholder="npr. moja-ordinacija"
-            required /></label
-        ><label
-          >Korisničko ime<input
-            name="username"
-            autocomplete="username"
-            required /></label
-        ><label
-          >Lozinka<input
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            required /></label
-        ><button class="button primary full">Prijava</button>
-        <label id="mfaLoginField" class="hidden">Kod iz autentikator aplikacije<input name="mfa_code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" /></label>
-        <p id="loginHint" class="muted">Koristite nalog koji vam je dodelila ordinacija. Prijava može zahtevati dodatni verifikacioni kod.</p>
-      </form>
-    </div>
-    <div
-      id="quickSwitch"
-      class="quick-switch hidden"
-      role="dialog"
-      aria-label="Brzi izbor pacijenta"
-    >
-      <div class="quick-card card">
-        <input
-          id="quickInput"
-          type="search"
-          placeholder="Ime pacijenta…"
-          autocomplete="off"
-        />
-        <div id="quickResults" class="quick-results"></div>
-        <div class="quick-hint">
-          <span><b class="kbd">↑↓</b> kretanje</span
-          ><span><b class="kbd">Enter</b> otvori karton</span
-          ><span><b class="kbd">Esc</b> zatvori</span>
-        </div>
-      </div>
-    </div>
-    <div id="toast" class="toast"></div>
-    <script src="/static/app.js"></script>
-    <script src="/static/briefing.js"></script>
-  </body>
+<label>Oznaka ordinacije<input autocomplete="organization" name="organization" placeholder="npr. moja-ordinacija" required=""/></label><label>Korisničko ime<input autocomplete="username" name="username" required=""/></label><label>Lozinka<input autocomplete="current-password" name="password" required="" type="password"/></label><button class="button primary full">Prijava</button>
+<label class="hidden" id="mfaLoginField">Kod iz autentikator aplikacije<input autocomplete="one-time-code" inputmode="numeric" maxlength="6" name="mfa_code" pattern="[0-9]{6}"/></label>
+<p class="muted" id="loginHint">Koristite nalog koji vam je dodelila ordinacija. Prijava može zahtevati dodatni verifikacioni kod.</p>
+</form>
+</div>
+<div aria-label="Brzi izbor pacijenta" class="quick-switch hidden" id="quickSwitch" role="dialog">
+<div class="quick-card card">
+<input autocomplete="off" id="quickInput" placeholder="Ime pacijenta…" type="search"/>
+<div class="quick-results" id="quickResults"></div>
+<div class="quick-hint">
+<span><b class="kbd">↑↓</b> kretanje</span><span><b class="kbd">Enter</b> otvori karton</span><span><b class="kbd">Esc</b> zatvori</span>
+</div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/briefing.js"></script>
+</body>
 </html>

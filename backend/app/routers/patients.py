@@ -109,9 +109,11 @@ async def upload(patient_id: str, file: UploadFile = File(...), user=Depends(req
 @router.get('/api/documents/inbox')
 def inbox(user=Depends(current_user)):
     names = {p.id: p.full_name for p in store.list_patients(user.organization_id)}
+    pending_lab_doc_ids = store.documents_with_pending_lab_results(user.organization_id)
     return [
         {'id': d.id, 'patient_id': d.patient_id, 'patient_name': names.get(d.patient_id, 'Unknown patient'),
-         'filename': d.filename, 'uploaded_at': d.uploaded_at, 'size_bytes': d.size_bytes, 'status': d.status, 'attention': d.attention}
+         'filename': d.filename, 'uploaded_at': d.uploaded_at, 'size_bytes': d.size_bytes, 'status': d.status,
+         'attention': d.attention, 'pending_lab_confirmation': d.id in pending_lab_doc_ids}
         for d in store.list_documents(user.organization_id)
     ]
 

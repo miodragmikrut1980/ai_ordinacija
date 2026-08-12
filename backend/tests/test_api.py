@@ -636,3 +636,33 @@ def test_dashboard_epi_alerts_surface_clusters_for_doctor_not_reception():
     assert any('gastrointestinalni' in a for a in dash['epi_alerts']),dash['epi_alerts']
     recep=client.get('/api/dashboard',headers=login('reception','reception123')).json()
     assert recep['epi_alerts']==[]
+
+
+def test_inbox_flags_pending_lab_confirmation_from_auto_extracted_draft():
+    # v1.16.0 UX pass: the document inbox status bar needs to distinguish
+    # "a lab value was auto-extracted from this document and still awaits
+    # a lekar's verified/rejected decision" from a plain unreviewed upload.
+    h=login()
+    p=client.post('/api/patients',headers=h,json={'full_name':'Inbox Status Pacijent'}).json()
+    up=client.post(f"/api/patients/{p['id']}/documents",headers=h,files={'file':('nalaz.txt','CRP: 15 mg/L, povišen'.encode('utf-8'),'text/plain')})
+    assert up.status_code==200 and up.json()['lab_drafts_created']>=1
+    doc_id=up.json()['id']
+    inbox=client.get('/api/documents/inbox',headers=h).json()
+    row=next(x for x in inbox if x['id']==doc_id)
+    assert row['pending_lab_confirmation'] is True
+
+    lab=client.get(f"/api/patients/{p['id']}/lab-results",headers=h).json()
+    draft=next(x for x in lab if x['source_document_id']==doc_id)
+    client.patch(f"/api/patients/{p['id']}/lab-results/{draft['id']}/status",headers=h,json={'status':'verified'})
+    inbox_after=client.get('/api/documents/inbox',headers=h).json()
+    row_after=next(x for x in inbox_after if x['id']==doc_id)
+    assert row_after['pending_lab_confirmation'] is False
+
+
+def test_inbox_pending_lab_confirmation_false_for_document_without_lab_values():
+    h=login()
+    p=client.post('/api/patients',headers=h,json={'full_name':'Inbox Bez Lab Pacijent'}).json()
+    up=client.post(f"/api/patients/{p['id']}/documents",headers=h,files={'file':('napomena.txt','Pacijent se oseća dobro, bez tegoba.'.encode('utf-8'),'text/plain')})
+    inbox=client.get('/api/documents/inbox',headers=h).json()
+    row=next(x for x in inbox if x['id']==up.json()['id'])
+    assert row['pending_lab_confirmation'] is False

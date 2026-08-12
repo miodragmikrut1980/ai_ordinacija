@@ -188,6 +188,34 @@ async function loadDashboard() {
   await loadRedFlagBanner(m.red_flags_pending);
   renderEpiBanner(m.epi_alerts);
   await loadSetupBanner();
+  renderCommandCenter(ta, d);
+}
+function renderCommandCenter(todaysAppointments, inboxDocs) {
+  const el = $("#commandCenter");
+  if (!el) return;
+  if (!["receptionist", "admin"].includes(currentUser.role)) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  const arrived = todaysAppointments.filter((a) => a.status === "checked_in");
+  const late = todaysAppointments.filter((a) => lateMinutes(a) > 0);
+  const waiting = todaysAppointments.filter((a) => a.status === "scheduled");
+  const docsNeedingAttention = inboxDocs.filter(
+    (d) => d.attention || d.status === "failed" || d.pending_lab_confirmation,
+  );
+  $("#ccArrived").textContent = arrived.length;
+  $("#ccLate").textContent = late.length;
+  $("#ccWaiting").textContent = waiting.length;
+  $("#ccDocsAttention").textContent = docsNeedingAttention.length;
+  const next = waiting
+    .slice()
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0];
+  $("#ccNext").innerHTML = next
+    ? `<strong>Sledeći:</strong> ${new Date(next.starts_at).toLocaleTimeString("sr-Latn-RS", { hour: "2-digit", minute: "2-digit" })} · ${esc(next.patient_name)} — ${esc(next.reason)}`
+    : late.length
+      ? `<strong>Nema više zakazanih danas</strong> — proverite ${late.length} ${late.length === 1 ? "pacijenta koji kasni" : "pacijenata koji kasne"}.`
+      : `<strong>Nema više zakazanih termina danas.</strong>`;
 }
 async function loadRedFlagBanner(count) {
   const el = $("#redFlagBanner");
@@ -232,8 +260,18 @@ const appointmentRow = (a) => {
   const late = lateMinutes(a);
   return `<div class="row appt-row ${a.status}${late > 0 ? " late" : ""}"><div><strong>${new Date(a.starts_at).toLocaleTimeString("sr-Latn-RS", { hour: "2-digit", minute: "2-digit" })} · ${esc(a.patient_name)}</strong><p>${esc(a.reason)}${a.clinician_name ? " · " + esc(a.clinician_name) : ""}${a.room ? " · " + esc(a.room) : ""}</p></div><div class="row-actions">${late > 0 ? `<span class="badge late" title="Pacijent nije prijavljen na vreme">Kasni ${late} min</span>` : ""}<button class="button secondary open-chart" data-patient="${a.patient_id}" title="Otvori karton pacijenta">Karton</button><select class="status-select" data-id="${a.id}">${APPT_STATUSES.map(([v, l]) => `<option value="${v}" ${a.status === v ? "selected" : ""}>${l}</option>`).join("")}<option value="no_show" ${a.status === "no_show" ? "selected" : ""}>Nije se pojavio</option></select></div></div>`;
 };
-const documentRow = (d) =>
-  `<div class="row"><div><strong>${esc(d.filename)}</strong><p>${esc(d.patient_name)} · ${fmtDate(d.uploaded_at)}</p></div>${d.attention ? '<span class="badge warn">Potrebna provera</span>' : '<span class="badge">Spremno</span>'}</div>`;
+function inboxStatus(d) {
+  if (d.status === "failed")
+    return { cls: "failed", label: "OCR neuspešan" };
+  if (d.pending_lab_confirmation)
+    return { cls: "pending-lab", label: "Čeka potvrdu laboratorije" };
+  if (d.attention) return { cls: "attention", label: "Potrebna provera" };
+  return { cls: "ready", label: "Spremno" };
+}
+const documentRow = (d) => {
+  const s = inboxStatus(d);
+  return `<div class="row"><div><strong>${esc(d.filename)}</strong><p>${esc(d.patient_name)} · ${fmtDate(d.uploaded_at)}</p></div><span class="inbox-status ${s.cls}">${s.label}</span></div>`;
+};
 
 async function loadRadar() {
   const days = $("#radarPeriod")?.value || 7;
@@ -717,8 +755,20 @@ async function selectPatient(id) {
       .join(" · ") || "Nema dodatnih demografskih podataka";
   $("#safetyStrip").innerHTML = "";
   rememberRecent(activePatient.id);
+  switchChartTab("pregled");
   await refreshWorkspace();
 }
+function switchChartTab(key) {
+  $$(".chart-tab").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tab === key),
+  );
+  $$(".chart-tab-panel").forEach((p) =>
+    p.classList.toggle("active", p.dataset.tabPanel === key),
+  );
+}
+$$(".chart-tab").forEach(
+  (b) => (b.onclick = () => switchChartTab(b.dataset.tab)),
+);
 function calcAge(dob) {
   if (!dob) return null;
   const b = new Date(dob),
@@ -773,6 +823,21 @@ async function loadLabResults() {
         )
         .join("")
     : '<p class="muted">Nema evidentiranih laboratorijskih rezultata.</p>';
+  if ($("#labTabFlag"))
+    $("#labTabFlag").classList.toggle(
+      "hidden",
+      !rows.some((x) => x.status === "draft"),
+    );
+}
+function renderTherapyOverview(p) {
+  const el = $("#therapyOverview");
+  if (!el) return;
+  const item = (k, v) =>
+    `<div class="profile-item"><span>${k}</span><strong>${esc(v || "Nije evidentirano")}</strong></div>`;
+  el.innerHTML =
+    item("Alergije", (p.allergies || []).join(", ")) +
+    item("Trenutna terapija", (p.current_medications || []).join(", ")) +
+    item("Dijagnoze", (p.diagnoses || []).join(", "));
 }
 async function loadSummary() {
   $("#summary").textContent = "Analiza kartona…";
@@ -1300,6 +1365,7 @@ async function loadClinicalProfile() {
   $("#profileForm").family_history.value = p.family_history || "";
   $("#profileForm").social_history.value = p.social_history || "";
   renderSafetyStrip(p);
+  renderTherapyOverview(p);
 }
 function renderSafetyStrip(p) {
   const al = p.allergies || [],

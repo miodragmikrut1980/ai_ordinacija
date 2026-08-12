@@ -970,6 +970,18 @@ class PersistentStore:
         rows = self._all("SELECT * FROM lab_results WHERE organization_id=? AND patient_id=? ORDER BY COALESCE(collected_at, created_at) DESC", (org, patient_id))
         return [self._lab_result_from_row(row) for row in rows]
 
+    def documents_with_pending_lab_results(self, org: str) -> set[str]:
+        """Document ids that have at least one lab result extracted from
+        them still sitting in 'draft' (not yet verified/rejected by a
+        lekar). Backs the inbox status bar's 'čeka potvrdu laboratorije'
+        state -- a plain-column query (source_document_id/status aren't
+        inside the encrypted blob), so this is cheap even for a busy inbox."""
+        rows = self._all(
+            "SELECT DISTINCT source_document_id FROM lab_results WHERE organization_id=? AND status='draft' AND source_document_id IS NOT NULL",
+            (org,),
+        )
+        return {r["source_document_id"] for r in rows}
+
     def update_lab_result_status(self, org: str, patient_id: str, result_id: str, status: str) -> LabResultRecord | None:
         with self._lock, self._conn:
             row = self._conn.execute("SELECT 1 FROM lab_results WHERE id=? AND organization_id=? AND patient_id=?", (result_id, org, patient_id)).fetchone()
