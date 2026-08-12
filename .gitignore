@@ -9,3 +9,4 @@ __pycache__/
 .venv/
 .clinic-venv/
 *.zip
+backend/clinic_ai_assistant.egg-info/
