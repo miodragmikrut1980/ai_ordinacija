@@ -50,7 +50,11 @@ test.describe('Dokumenti pacijenta', () => {
       page.waitForEvent('popup'),
       row.locator('.open-original').click(),
     ]);
-    await popup.waitForLoadState();
+    // The app deliberately opens about:blank synchronously (to survive
+    // popup blockers), then navigates it to a blob: URL only after the
+    // authenticated fetch resolves -- so this must wait for that second,
+    // asynchronous navigation rather than the initial (instant) blank load.
+    await popup.waitForURL((url) => url.toString() !== 'about:blank', { timeout: 10_000 });
     expect(popup.url()).not.toBe('about:blank');
     await popup.close();
 

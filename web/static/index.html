@@ -720,7 +720,7 @@
 <div class="dialog-head"><h2>Višefaktorska prijava</h2><button class="icon-button close" type="button">×</button></div>
 <p class="muted" id="mfaState">Dodajte nalog u autentikator aplikaciju, zatim potvrdite šestocifreni kod. Tajna se prikazuje samo tokom podešavanja.</p>
 <div class="hidden" id="mfaSecretBox"><label>Tajni ključ<input autocomplete="off" id="mfaSecret" readonly=""/></label><p class="muted">U autentikator aplikaciji izaberite „ručni unos ključa“, vremenski kod, 6 cifara.</p></div>
-<label>Kod iz autentikator aplikacije<input autocomplete="one-time-code" inputmode="numeric" maxlength="6" name="code" pattern="[0-9]{6}" required=""/></label>
+<label>Kod iz autentikator aplikacije<input autocomplete="one-time-code" id="mfaCodeInput" inputmode="numeric" maxlength="6" name="code" pattern="[0-9]{6}"/></label>
 <button class="button primary full" id="mfaPrimaryBtn">Započni podešavanje</button>
 <button class="button secondary full hidden" id="mfaDisableBtn" type="button">Isključi višefaktorsku prijavu</button>
 </form>

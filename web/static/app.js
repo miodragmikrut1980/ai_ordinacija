@@ -1374,6 +1374,7 @@ $("#mfaBtn").onclick = async () => {
   mfaSetupStarted = false;
   $("#mfaForm").reset();
   $("#mfaSecretBox").classList.add("hidden");
+  $("#mfaCodeInput").required = false;
   $("#mfaDisableBtn").classList.toggle("hidden", !currentUser.mfa_enabled);
   $("#mfaPrimaryBtn").textContent = currentUser.mfa_enabled ? "Podesi novi autentikator" : "Započni podešavanje";
   $("#mfaState").textContent = currentUser.mfa_enabled ? "Višefaktorska prijava je uključena. Novi autentikator zamenjuje postojeći tek nakon potvrde koda." : "Dodajte nalog u autentikator aplikaciju, zatim potvrdite šestocifreni kod. Tajna se prikazuje samo tokom podešavanja.";
@@ -1388,10 +1389,15 @@ $("#mfaForm").onsubmit = async (e) => {
       $("#mfaSecretBox").classList.remove("hidden");
       $("#mfaState").textContent = "Tajni ključ unesite u autentikator aplikaciju, pa ovde upišite trenutni kod. Nemojte čuvati ključ u beleškama ili slati ga porukom.";
       $("#mfaPrimaryBtn").textContent = "Potvrdi i uključi";
+      $("#mfaCodeInput").required = true;
       mfaSetupStarted = true;
       return;
     }
     const code = new FormData(e.target).get("code");
+    if (!code || !/^[0-9]{6}$/.test(code)) {
+      toast("Unesite šestocifreni kod iz autentikator aplikacije");
+      return;
+    }
     await api("/api/auth/mfa/confirm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
     currentUser.mfa_enabled = true;
     $("#mfaDialog").close();
