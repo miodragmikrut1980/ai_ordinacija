@@ -55,17 +55,26 @@ def _abnormality(value: float | None, low: float | None, high: float | None) -> 
     return "normal"
 
 
-def extract_lab_candidates(text: str, collected_at: datetime | None = None) -> list[tuple[LabResultCreate, str]]:
+def extract_lab_candidates(text: str, collected_at: datetime | None = None, page_offsets: list[int] | None = None) -> list[tuple[LabResultCreate, str]]:
     """Return deduplicated, conservative parsed lab candidates.
 
     Only a recognized test name followed by a numeric value on the same line
     is accepted. The returned abnormality is informational and must still be
     checked against the original report by a clinician.
+
+    `page_offsets` (see extractors.py:extract_text_with_method), if given,
+    lets each candidate carry the 1-indexed page of the original document it
+    was found on -- this is what backs the document-viewer citation feature
+    (jump straight to the right page instead of re-reading the whole file).
     """
+    import bisect
     seen: set[tuple[str, float, str | None]] = set()
     results: list[tuple[LabResultCreate, str]] = []
-    for raw_line in text.splitlines():
+    offset = 0
+    for raw_line in text.splitlines(keepends=True):
         line = " ".join(raw_line.strip().split())
+        line_offset = offset
+        offset += len(raw_line)
         if not line or len(line) > 500:
             continue
         lowered = line.lower()
@@ -85,8 +94,14 @@ def extract_lab_candidates(text: str, collected_at: datetime | None = None) -> l
             if key in seen:
                 break
             seen.add(key)
+            source_page = None
+            if page_offsets:
+                # bisect_right - 1: the last page whose offset is <= this line's
+                # offset is the page the line actually falls on.
+                source_page = bisect.bisect_right(page_offsets, line_offset)
             result = LabResultCreate(name=name, value=value, unit=unit, reference_range=reference_range,
-                                     collected_at=collected_at or datetime.now(timezone.utc), notes=f"Prepoznato iz dokumenta: {line[:260]}")
+                                     collected_at=collected_at or datetime.now(timezone.utc), notes=f"Prepoznato iz dokumenta: {line[:260]}",
+                                     source_page=source_page)
             results.append((result, _abnormality(value, low, high)))
             break
     return results[:80]

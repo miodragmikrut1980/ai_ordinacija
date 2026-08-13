@@ -219,6 +219,7 @@ class LabResultCreate(BaseModel):
     reference_range: str | None = Field(default=None, max_length=100)
     collected_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=1000)
+    source_page: int | None = None
 
 
 class LabResultRecord(LabResultCreate):
@@ -240,11 +241,13 @@ class MedicationSafetyRequest(BaseModel):
 
 
 class MedicationSafetyFinding(BaseModel):
+    rule_id: str
     severity: Literal["critical", "high", "moderate"]
-    type: Literal["allergy", "interaction", "duplicate"]
+    type: Literal["allergy", "interaction", "duplicate", "organ_function"]
     medications: list[str] = Field(default_factory=list)
     message: str
     action: str
+    source_note: str
 
 
 class MedicationSafetyCheck(BaseModel):
@@ -346,6 +349,7 @@ class DifferentialCandidate(BaseModel):
     reviewed_at: datetime | None = None
     reviewed_by: str | None = None
     doctor_note: str | None = None
+    icd10_code: str | None = None
 
 class DifferentialAnalysis(BaseModel):
     id: str
@@ -473,3 +477,136 @@ class OutstandingInvoice(BaseModel):
     paid_rsd: int
     balance_due_rsd: int
     days_outstanding: int
+
+
+# -- pacijentski portal ------------------------------------------------------
+# Potpuno odvojena autentifikacija od osoblja: poseban token prostor
+# (portal_sessions, ne sessions), poseban lockout brojač (realm='portal' u
+# istoj login_attempts tabeli), i endpointi isključivo pod /api/portal/*
+# koji nikad ne dele zavisnost (dependency) sa current_user/require_roles
+# za osoblje. Ovo je namerna arhitekturalna odluka, ne slučajnost: token
+# izdat pacijentu ne sme ni pod kojim uslovom biti prihvaćen na endpointu
+# osoblja, i obrnuto.
+
+class PortalAccountCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=128)
+    @field_validator('password')
+    @classmethod
+    def _strength(cls, v: str) -> str:
+        return _check_password_strength(v)
+
+class PortalAccountRecord(BaseModel):
+    id: str
+    organization_id: str
+    patient_id: str
+    username: str
+    created_at: datetime
+    active: bool = True
+    must_change_password: bool = True
+
+class PortalLoginRequest(BaseModel):
+    organization: str
+    username: str
+    password: str
+
+class PortalChangePassword(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+    @field_validator('new_password')
+    @classmethod
+    def _strength(cls, v: str) -> str:
+        return _check_password_strength(v)
+
+class PortalAppointmentRequest(BaseModel):
+    starts_at: datetime
+    clinician_id: str | None = None
+    service_type: str | None = Field(default=None, max_length=80)
+    reason: str = Field(min_length=2, max_length=240)
+    duration_minutes: int = Field(default=20, ge=5, le=240)
+
+ConsentType = Literal["obrada_podataka"]
+
+class ConsentAccept(BaseModel):
+    consent_type: ConsentType = "obrada_podataka"
+
+class ConsentRecord(BaseModel):
+    id: str
+    organization_id: str
+    patient_id: str
+    consent_type: ConsentType
+    accepted_at: datetime
+    consent_text_version: str
+
+class PortalMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+class PortalMessageRecord(BaseModel):
+    id: str
+    organization_id: str
+    patient_id: str
+    sender_type: Literal["patient", "staff"]
+    sender_name: str
+    body: str
+    created_at: datetime
+    read_at: datetime | None = None
+
+class QuestionnaireSubmit(BaseModel):
+    appointment_id: str | None = None
+    chief_complaint: str = Field(min_length=2, max_length=300)
+    symptoms_text: str = Field(default="", max_length=3000)
+    confirmed_allergies: bool = False
+    confirmed_medications: bool = False
+    additional_notes: str | None = Field(default=None, max_length=2000)
+
+class QuestionnaireResponseRecord(QuestionnaireSubmit):
+    id: str
+    organization_id: str
+    patient_id: str
+    submitted_at: datetime
+
+
+# -- specijalistički modul: pedijatrija ------------------------------------
+# Namerno bez WHO percentila rasta ili vakcinalnog kalendara -- oba
+# zahtevaju zvanične, ažurne tabele/kalendare koje ovaj sistem ne može
+# pouzdano da proveri niti automatski ažurira. Umesto toga: evidentiranje
+# merenja rasta kroz vreme (trend, ne procenat) i evidentiranje datih
+# vakcina (dnevnik, ne raspored/podsetnik) -- korisno i bezbedno bez
+# tvrdnji koje sistem ne može da garantuje.
+
+class PediatricProfileUpdate(BaseModel):
+    guardian_name: str | None = Field(default=None, max_length=120)
+    guardian_relationship: str | None = Field(default=None, max_length=40)
+    guardian_phone: str | None = Field(default=None, max_length=40)
+
+class PediatricProfileRecord(PediatricProfileUpdate):
+    patient_id: str
+    organization_id: str
+    updated_at: datetime
+
+class GrowthMeasurementCreate(BaseModel):
+    measured_at: datetime
+    height_cm: float | None = Field(default=None, ge=0, le=250)
+    weight_kg: float | None = Field(default=None, ge=0, le=200)
+    head_circumference_cm: float | None = Field(default=None, ge=0, le=70)
+    notes: str | None = Field(default=None, max_length=500)
+
+class GrowthMeasurementRecord(GrowthMeasurementCreate):
+    id: str
+    organization_id: str
+    patient_id: str
+    created_at: datetime
+
+class VaccinationCreate(BaseModel):
+    vaccine_name: str = Field(min_length=2, max_length=120)
+    administered_at: str
+    lot_number: str | None = Field(default=None, max_length=60)
+    administered_by: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=500)
+
+class VaccinationRecord(VaccinationCreate):
+    id: str
+    organization_id: str
+    patient_id: str
+    created_at: datetime
+    recorded_by_name: str

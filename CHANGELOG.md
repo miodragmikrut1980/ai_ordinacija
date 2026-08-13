@@ -1,5 +1,125 @@
 # Changelog
 
+## 1.19.0
+
+Poslednja dva stavke sa originalne liste prioriteta: verzionisana baza
+lekova (bezbednosno prošireno, ne fabrikovano) i prvi specijalistički
+modul (Pedijatrija, namerno bez WHO percentila i vakcinalnog kalendara
+koje sistem ne može pouzdano da garantuje).
+
+### Added
+- **Upozorenja za bubrežnu/jetrenu funkciju** u proveri bezbednosti
+  terapije: sistem prepoznaje pominjanje bubrežne/jetrene insuficijencije
+  u dijagnozama ili anamnezi pacijenta (pretraga korena reči, otporna na
+  srpske padeže) i unakrsno proverava sa poznatim lekovima iz terapije
+  (npr. metformin + bubrežna insuficijencija → kritično upozorenje o
+  laktatnoj acidozi).
+- **`rule_id` i `source_note`** na svakom nalazu provere terapije —
+  svako upozorenje sada vodi do konkretnog, verzionisanog pravila i
+  jasne napomene da je reč o opšte poznatoj farmakološkoj činjenici,
+  ne o licenciranoj spoljnoj bazi. Novi endpoint
+  `/api/medication-safety/rules` — pun katalog svih pravila za reviziju.
+- **Pedijatrija — prvi specijalistički modul**: podaci o staratelju
+  (ime, srodstvo, telefon), evidentiranje merenja rasta kroz vreme
+  (visina/težina/obim glave) sa trend grafikonom, i dnevnik datih
+  vakcina (naziv, datum, serija, ko je dao). Namerno bez izračunavanja
+  WHO percentila rasta i bez zvaničnog rasporeda vakcinacije — oba
+  zahtevaju autoritativne, ažurne izvore koje ovaj sistem ne može
+  pouzdano da proveri; pogrešan medicinski kalendar u alatu je opasniji
+  nego da ga uopšte nema.
+- Nov tab „Pedijatrija" u kartonu pacijenta.
+
+### Fixed
+- Pretraga dijagnoza/anamneze za bubrežnu/jetrenu funkciju je prvobitno
+  koristila fraze u nominativu ("ciroza", "bubrežna insuficijencija"),
+  pa padežni oblici ("cirozu", "bubrežnu insuficijenciju") nisu
+  prepoznavani — opasan tihi propust za bezbednosnu proveru. Ispravljeno
+  pretragom korena reči, uz regresioni test.
+
+### Novi testovi
+- 7 testova za verzionisanje/organsku funkciju u proveri terapije
+  (`test_laboratory_and_safety.py`), uključujući regresioni test za
+  padežni bug.
+- 8 testova za pedijatrijski modul (`test_pediatrics.py`), uključujući
+  eksplicitnu proveru da odgovor nikad ne pominje „percentil".
+
+142/142 testova prolazi.
+
+## 1.18.0
+
+Pacijentski portal — najveći dodatak do sada. Potpuno odvojena
+autentifikacija od osoblja (poseban token prostor, poseban brojač
+zaključavanja), sa jasno ograničenim obimom podataka koje pacijent vidi.
+
+### Added
+- **Nalog pacijenta i prijava**: recepcija/admin kreira portal nalog
+  (username + privremena lozinka, isti obrazac kao kreiranje naloga
+  osoblja), pacijent je menja pri prvoj prijavi. Novi endpointi pod
+  `/api/portal/auth/*` i `POST /api/patients/{id}/portal-account`.
+  Bezbednosna granica je stroga i testirana: token osoblja se ne
+  prihvata ni na jednom `/api/portal/*` endpointu, i obrnuto — dva
+  potpuno odvojena skladišta sesija (`portal_sessions` naspram
+  `sessions`) i odvojen brojač neuspešnih prijava.
+- **Online zakazivanje**: pacijent bira lekara i datum, sistem računa
+  slobodne termine u radnom vremenu ordinacije (`CLINIC_WORKING_HOURS_*`)
+  koristeći isti mehanizam sprečavanja sudara koji već štiti kalendar
+  osoblja. Otkazivanje sopstvenog termina je takođe podržano; pokušaj
+  otkazivanja tuđeg termina vraća 404 (ne 403), da se ne otkrije
+  postojanje tuđeg zakazanog termina.
+- **Pristanak za obradu podataka**: verzionisan tekst pristanka,
+  vremenski žigosan prilikom prihvatanja (`/api/portal/consent`).
+- **Bezbedne poruke**: dvosmerna nit između pacijenta i ordinacije,
+  vidljiva sa obe strane (`/api/portal/messages` i novo
+  `/api/patients/{id}/messages` za osoblje).
+- **Digitalni upitnik pre pregleda**: glavna tegoba, opis simptoma,
+  potvrda tačnosti alergija/terapije — vidljivo lekaru u kartonu
+  (`/api/patients/{id}/questionnaire-responses`, samo doctor/admin).
+- **Nalazi**: pacijent vidi isključivo laboratorijske rezultate sa
+  statusom „potvrđeno" — nikad nacrt (neproveren OCR/AI nalaz) niti
+  odbačen rezultat.
+- Nova frontend aplikacija na `/portal` (`portal.html`/`.js`/`.css`),
+  vizuelno usklađena sa glavnom aplikacijom ali sa sopstvenim,
+  odvojenim čuvanjem tokena u pregledaču (različit localStorage ključ
+  od aplikacije za osoblje, da se izbegne mešanje kad su oba otvorena u
+  istom pregledaču).
+- `backend/tests/test_portal.py`: 12 novih testova, uključujući
+  eksplicitan test da token osoblja i portal token nisu međusobno
+  zamenljivi ni u jednom smeru.
+
+## 1.17.0
+
+Document-viewer sa citatima + laboratorijski standardi. Namerno mala,
+tačna verzija LOINC/MKB-10 podrške (seed skup za analize/dijagnoze koje
+sistem već prepoznaje), ne pokušaj pune terminološke baze — isti princip
+pouzdanosti kao kod SMS/Viber podsetnika i fiskalizacije u ranijim
+izdanjima.
+
+### Added
+- **Citat do tačne stranice originala**: PDF ekstrakcija sada prati sa
+  koje je stranice svaki prepoznati laboratorijski nalaz izvučen
+  (`page_offsets` u `extractors.py`). U tabu Laboratorija, svaki nalaz sa
+  poznatom stranicom dobija dugme „📄 Str. N u originalu" koje otvara PDF
+  direktno na toj strani (`#page=N`, radi nativno u browseru, bez
+  dodatnih biblioteka). Izvorni red iz dokumenta je već prikazan kao
+  tekst pored dugmeta.
+- **LOINC seed kodovi** (`standards.py`) za svih 8 analiza koje sistem
+  prepoznaje (CRP, Glukoza, Hemoglobin, Leukociti, Trombociti,
+  Kreatinin, TSH, HbA1c), sa opštim referentnim opsezima iz literature i
+  jasnom napomenom da laboratorija ordinacije može imati drugačiji
+  opseg. Novi endpoint `/api/lab-standards`.
+- **MKB-10/ICD-10 seed kodovi** za svih 6 dijagnoza koje AI
+  diferencijalna analiza prepoznaje (npr. Infekcija urinarnog trakta →
+  N39.0). Prikazuje se uz svaki AI predlog u kartonu. Novi endpoint
+  `/api/icd10-codes`.
+- **Trend grafikon laboratorijskih nalaza**: dugme „📈 Trend" pored
+  analiza sa više od jednog merenja, sa ručno iscrtanim SVG grafikonom
+  (bez eksternih biblioteka, isti pristup kao epidemiološki radar).
+  Novi endpoint `/api/patients/{id}/lab-results/trend`.
+- Novo polje `source_page` na laboratorijskim rezultatima.
+- Novi test fajl `test_standards_and_citations.py` (6 testova,
+  uključujući end-to-end test sa pravim dvostranim PDF-om) i 2 nova
+  jedinična testa za mapiranje reda u stranicu.
+
 ## 1.16.0
 
 UX runda iz ugla svakodnevnog rada ordinacije, po povratnim informacijama

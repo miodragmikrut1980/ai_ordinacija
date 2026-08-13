@@ -239,3 +239,19 @@ body.dark .inbox-status.ready{background:#173129;color:#a9dcc8}
 body.dark .inbox-status.attention{background:#332711;color:#e8bd7f}
 body.dark .inbox-status.failed{background:#3a1f1d;color:#f0b9b2}
 body.dark .inbox-status.pending-lab{background:#1e2140;color:#aab4f0}
+
+/* === v1.17.0: dokument-viewer citati + laboratorijski standardi === */
+.lab-standard-hint{display:block;margin-top:5px;font-style:italic;color:#8ca39f}
+.lab-source-link{text-decoration:none;font-size:11.5px;padding:8px 11px;white-space:nowrap}
+.lab-trend-btn{font-size:11.5px;padding:8px 11px;white-space:nowrap}
+.lab-trend-panel{background:#f8fbfa;border:1px solid #e1eae8;border-radius:14px;padding:16px 18px;margin-top:14px}
+.lab-trend-panel h4{margin:0 0 10px;font-size:13px;color:#176b5c}
+.lab-trend-svg{width:100%;height:auto;display:block}
+body.dark .lab-standard-hint{color:#5a7a77}
+body.dark .lab-trend-panel{background:#0e1f21;border-color:#294044}
+body.dark .lab-trend-panel h4{color:#56c2a4}
+
+/* === Verzionisana pravila bezbednosti terapije === */
+.safety-source{display:block;margin-top:6px;font-style:italic;color:#8ca39f;font-size:10.5px}
+.safety-finding.organ-function{border-left:3px solid #3949a6;padding-left:11px}
+body.dark .safety-source{color:#5a7a77}

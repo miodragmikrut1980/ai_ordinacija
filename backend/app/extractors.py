@@ -52,7 +52,7 @@ def _ocr_image(raw: bytes, suffix: str) -> str:
     return completed.stdout.decode("utf-8", errors="replace").strip()
 
 
-def _ocr_pdf(raw: bytes) -> str:
+def _ocr_pdf(raw: bytes) -> tuple[str, list[int]]:
     converter = shutil.which("pdftoppm")
     if not converter:
         raise UnsupportedDocumentError("Scanned PDF OCR requires local Poppler (pdftoppm) and Tesseract.")
@@ -80,17 +80,31 @@ def _ocr_pdf(raw: bytes) -> str:
         pages = sorted(Path(temp).glob("page-*.png"))[:MAX_PDF_OCR_PAGES]
         if not pages:
             raise UnsupportedDocumentError("No pages could be prepared for OCR.")
-        return "\n\n".join(_ocr_image(page.read_bytes(), ".png") for page in pages).strip()
+        page_texts = [_ocr_image(page.read_bytes(), ".png") for page in pages]
+        return "\n\n".join(page_texts).strip(), _offsets_from_page_texts(page_texts)
 
 
-def extract_text_with_method(filename: str, raw: bytes) -> tuple[str, str]:
+def extract_text_with_method(filename: str, raw: bytes) -> tuple[str, str, list[int]]:
+    """Returns (text, method, page_offsets). page_offsets[i] is the character
+    offset in `text` where page i (0-indexed; page number = i+1) begins --
+    this is what lets a lab result parsed from the text be traced back to
+    the exact page of the original PDF for the document-viewer citation
+    feature (see laboratory.py:extract_lab_candidates and the
+    /original#page=N link built from source_page in the frontend). For
+    formats without a real page concept (.docx, .txt/.md, a single image),
+    the whole document is treated as one page -- page_offsets=[0] -- which
+    is honest (there's no finer citation to offer) rather than fabricating
+    page numbers that don't correspond to anything.
+    """
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
         reader = PdfReader(BytesIO(raw))
-        text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        page_texts = [(page.extract_text() or "") for page in reader.pages]
+        text = "\n".join(page_texts).strip()
         method = "text"
+        page_offsets = _offsets_from_page_texts(page_texts)
         if not text:
-            text = _ocr_pdf(raw)
+            text, page_offsets = _ocr_pdf(raw)
             method = "ocr"
     elif suffix == ".docx":
         try:
@@ -103,17 +117,30 @@ def extract_text_with_method(filename: str, raw: bytes) -> tuple[str, str]:
         doc = Document(BytesIO(raw))
         text = "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
         method = "text"
+        page_offsets = [0]
     elif suffix in {".txt", ".md"}:
         text = raw.decode("utf-8", errors="replace").strip()
         method = "text"
+        page_offsets = [0]
     elif suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}:
         text = _ocr_image(raw, suffix)
         method = "ocr"
+        page_offsets = [0]
     else:
         raise UnsupportedDocumentError("Supported formats: PDF, DOCX, TXT, MD, PNG, JPG, TIFF and BMP.")
     if len(text) > MAX_EXTRACTED_TEXT_CHARS:
         text = text[:MAX_EXTRACTED_TEXT_CHARS]
-    return text, method
+        page_offsets = [o for o in page_offsets if o <= len(text)] or [0]
+    return text, method, page_offsets
+
+
+def _offsets_from_page_texts(page_texts: list[str]) -> list[int]:
+    offsets = []
+    running = 0
+    for t in page_texts:
+        offsets.append(running)
+        running += len(t) + 1  # +1 for the "\n" join separator
+    return offsets or [0]
 
 
 def extract_text(filename: str, raw: bytes) -> str:

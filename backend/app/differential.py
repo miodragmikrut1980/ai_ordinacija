@@ -3,6 +3,7 @@ from uuid import uuid4
 from dataclasses import dataclass
 
 from .clinical_keywords import any_unnegated
+from .standards import ICD10_CODES
 
 @dataclass(frozen=True)
 class Rule:
@@ -81,7 +82,7 @@ def build_differential(patient, documents, encounters, radar: dict) -> dict:
         if score < 18: continue
         score=min(score,95)
         level='visoko' if score>=70 else 'srednje' if score>=45 else 'niže'
-        candidates.append({'id':str(uuid4()),'name':rule.name,'category':rule.category,'match_score':score,'match_level':level,'supporting_evidence':evidence,'contradicting_evidence':[],'missing_information':list(rule.missing),'red_flag':rule.red_flag})
+        candidates.append({'id':str(uuid4()),'name':rule.name,'category':rule.category,'match_score':score,'match_level':level,'supporting_evidence':evidence,'contradicting_evidence':[],'missing_information':list(rule.missing),'red_flag':rule.red_flag,'icd10_code':ICD10_CODES.get(rule.name)})
     candidates.sort(key=lambda x:(not x['red_flag'],-x['match_score']))
     epi=[]
     for trend in radar.get('syndrome_trends',[]):

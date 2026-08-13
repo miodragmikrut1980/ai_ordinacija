@@ -787,6 +787,7 @@ async function refreshWorkspace() {
     loadClinicalProfile(),
     loadEncounters(),
     loadLabResults(),
+    loadPediatrics(),
   ]);
 }
 async function loadOverview() {
@@ -807,28 +808,105 @@ async function loadDocuments() {
         .join("")
     : '<p class="muted">Nema dodatih dokumenata.</p>';
 }
+let labStandardsCache = null;
+async function ensureLabStandards() {
+  if (!labStandardsCache) {
+    try {
+      labStandardsCache = await api("/api/lab-standards");
+    } catch {
+      labStandardsCache = {};
+    }
+  }
+  return labStandardsCache;
+}
 async function loadLabResults() {
   if (!activePatient || !["doctor", "admin"].includes(currentUser.role)) return;
   const rows = await api(`/api/patients/${activePatient.id}/lab-results`);
+  const standards = await ensureLabStandards();
   const status = {
     draft: "Nacrt iz dokumenta",
     verified: "Potvrđeno",
     rejected: "Odbačeno",
   };
+  const countByName = {};
+  rows.forEach((x) => (countByName[x.name] = (countByName[x.name] || 0) + 1));
   $("#labResults").innerHTML = rows.length
     ? rows
-        .map(
-          (x) =>
-            `<div class="row"><div><strong>${esc(x.name)}: ${x.value === null ? "—" : esc(x.value)} ${esc(x.unit || "")}</strong><p>${esc(x.reference_range ? `Referentno: ${x.reference_range}` : "Referentni opseg nije prepoznat")} · ${fmtDate(x.collected_at || x.created_at)}</p>${x.notes ? `<small class="muted">${esc(x.notes)}</small>` : ""}</div><div class="row-actions"><span class="badge ${x.abnormality === "high" || x.abnormality === "low" ? "warn" : ""}">${x.abnormality === "high" ? "Povišeno*" : x.abnormality === "low" ? "Sniženo*" : esc(status[x.status])}</span>${x.status === "draft" ? `<button class="button secondary lab-status" data-id="${x.id}" data-status="verified">Potvrdi</button><button class="button secondary lab-status" data-id="${x.id}" data-status="rejected">Odbaci</button>` : ""}</div></div>`,
-        )
+        .map((x) => {
+          const std = standards[x.name];
+          const citation =
+            x.source_page && x.source_document_id
+              ? `<a class="button secondary lab-source-link" target="_blank" rel="noopener" href="/api/patients/${activePatient.id}/documents/${x.source_document_id}/original#page=${x.source_page}">📄 Str. ${x.source_page} u originalu</a>`
+              : "";
+          const trendBtn =
+            countByName[x.name] > 1
+              ? `<button type="button" class="button secondary lab-trend-btn" data-name="${esc(x.name)}">📈 Trend</button>`
+              : "";
+          return `<div class="row"><div><strong>${esc(x.name)}: ${x.value === null ? "—" : esc(x.value)} ${esc(x.unit || "")}</strong><p>${esc(x.reference_range ? `Referentno: ${x.reference_range}` : "Referentni opseg nije prepoznat")} · ${fmtDate(x.collected_at || x.created_at)}</p>${x.notes ? `<small class="muted">${esc(x.notes)}</small>` : ""}${std ? `<small class="muted lab-standard-hint">LOINC ${esc(std.loinc_code)} · Opšta referenca: ${esc(std.general_reference_range)}</small>` : ""}</div><div class="row-actions">${citation}${trendBtn}<span class="badge ${x.abnormality === "high" || x.abnormality === "low" ? "warn" : ""}">${x.abnormality === "high" ? "Povišeno*" : x.abnormality === "low" ? "Sniženo*" : esc(status[x.status])}</span>${x.status === "draft" ? `<button class="button secondary lab-status" data-id="${x.id}" data-status="verified">Potvrdi</button><button class="button secondary lab-status" data-id="${x.id}" data-status="rejected">Odbaci</button>` : ""}</div></div>`;
+        })
         .join("")
     : '<p class="muted">Nema evidentiranih laboratorijskih rezultata.</p>';
+  $("#labTrendChart").classList.add("hidden");
+  $("#labTrendChart").innerHTML = "";
   if ($("#labTabFlag"))
     $("#labTabFlag").classList.toggle(
       "hidden",
       !rows.some((x) => x.status === "draft"),
     );
 }
+function renderLabTrendChart(rows, name) {
+  const pts = rows.filter((r) => r.value !== null);
+  if (pts.length < 2)
+    return '<p class="muted">Nedovoljno tačaka za grafikon trenda.</p>';
+  const W = 640,
+    H = 180,
+    padL = 40,
+    padR = 16,
+    padT = 16,
+    padB = 26,
+    plotW = W - padL - padR,
+    plotH = H - padT - padB;
+  const values = pts.map((p) => p.value);
+  const minV = Math.min(...values),
+    maxV = Math.max(...values);
+  const span = maxV - minV || 1;
+  const x = (i) => padL + (pts.length > 1 ? (i * plotW) / (pts.length - 1) : 0);
+  const y = (v) => padT + plotH - ((v - minV) / span) * plotH;
+  const path = pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`)
+    .join(" ");
+  const dots = pts
+    .map(
+      (p, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3.2" fill="${p.abnormality === "high" || p.abnormality === "low" ? "#b34b3f" : "#176b5c"}"><title>${new Date(p.date).toLocaleDateString("sr-Latn-RS")}: ${p.value} ${p.unit || ""}</title></circle>`,
+    )
+    .join("");
+  const xLabels = pts
+    .map(
+      (p, i) =>
+        `<text x="${x(i).toFixed(1)}" y="${H - 6}" font-size="9" fill="#8ca39f" text-anchor="middle">${new Date(p.date).toLocaleDateString("sr-Latn-RS", { month: "short", day: "numeric" })}</text>`,
+    )
+    .join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="lab-trend-svg"><line x1="${padL}" x2="${W - padR}" y1="${padT}" y2="${padT}" stroke="#e5eeec"/><line x1="${padL}" x2="${W - padR}" y1="${(padT + plotH).toFixed(1)}" y2="${(padT + plotH).toFixed(1)}" stroke="#e5eeec"/><path d="${path}" fill="none" stroke="#176b5c" stroke-width="2"/>${dots}${xLabels}<text x="${padL}" y="${padT - 4}" font-size="9" fill="#8ca39f">${maxV}</text><text x="${padL}" y="${(padT + plotH + 10).toFixed(1)}" font-size="9" fill="#8ca39f">${minV}</text></svg>`;
+}
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".lab-trend-btn");
+  if (!btn) return;
+  const el = $("#labTrendChart");
+  const name = btn.dataset.name;
+  if (!el.classList.contains("hidden") && el.dataset.name === name) {
+    el.classList.add("hidden");
+    el.dataset.name = "";
+    return;
+  }
+  const rows = await api(
+    `/api/patients/${activePatient.id}/lab-results/trend?name=${encodeURIComponent(name)}`,
+  );
+  el.dataset.name = name;
+  el.innerHTML = `<h4>Trend: ${esc(name)}</h4>${renderLabTrendChart(rows, name)}`;
+  el.classList.remove("hidden");
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
 function renderTherapyOverview(p) {
   const el = $("#therapyOverview");
   if (!el) return;
@@ -1467,7 +1545,7 @@ $("#medicationSafetyForm").onsubmit = async (e) => {
       ? d.findings
           .map(
             (x) =>
-              `<div class="row"><div><strong>${esc(x.severity.toUpperCase())} · ${esc(x.medications.join(" + "))}</strong><p>${esc(x.message)}</p><small>${esc(x.action)}</small></div></div>`,
+              `<div class="row safety-finding ${x.type === "organ_function" ? "organ-function" : ""}"><div><strong>${esc(x.severity.toUpperCase())} · ${esc(x.medications.join(" + "))}</strong><p>${esc(x.message)}</p><small>${esc(x.action)}</small><small class="muted safety-source">Pravilo ${esc(x.rule_id)} — ${esc(x.source_note)}</small></div></div>`,
           )
           .join("")
       : "<p>Nema pronađenih upozorenja u ograničenom skupu pravila. To ne znači da je terapija bezbedna.</p>";
@@ -1741,7 +1819,8 @@ function differentialCandidateHtml(x) {
       : status === "dismissed"
         ? "Odbačeno od lekara"
         : "AI sugestija — čeka pregled";
-  return `<details class="differential-item ${x.red_flag ? "red-flag" : ""} ${status}" open><summary><div><strong>${esc(x.name)}</strong><span>${esc(x.category)}</span></div><div class="match-score"><b>${x.match_score}/100</b><small>${esc(x.match_level)} podudaranje</small></div></summary><div class="match-bar"><i style="width:${x.match_score}%"></i></div><span class="candidate-state ${status}">${statusText}</span>${x.supporting_evidence.length ? `<p><b>Podržavaju:</b> ${esc(x.supporting_evidence.join("; "))}</p>` : ""}${x.contradicting_evidence.length ? `<p><b>Ne uklapa se:</b> ${esc(x.contradicting_evidence.join("; "))}</p>` : ""}${x.missing_information.length ? `<p><b>Potrebno proveriti:</b> ${esc(x.missing_information.join("; "))}</p>` : ""}${x.doctor_note ? `<p><b>Napomena lekara:</b> ${esc(x.doctor_note)}</p>` : ""}${x.red_flag ? '<span class="badge warn">Ne propustiti / razmotriti isključivanje</span>' : ""}${status === "pending" ? `<div class="candidate-review"><input class="doctor-note" data-candidate="${x.id}" placeholder="Opciona napomena lekara"><label><input type="checkbox" class="add-to-scribe" data-candidate="${x.id}"> Dodaj potvrđenu sugestiju u najnoviji AI nacrt pregleda</label><div><button class="button primary candidate-action" data-id="${x.id}" data-status="accepted">Potvrdi za razmatranje</button><button class="button secondary candidate-action" data-id="${x.id}" data-status="dismissed">Odbaci sugestiju</button></div></div>` : ""}${x.reviewed_by ? `<small>Pregledao: ${esc(x.reviewed_by)} · ${new Date(x.reviewed_at).toLocaleString("sr-Latn-RS")}</small>` : ""}</details>`;
+  const categoryLabel = `${esc(x.category)}${x.icd10_code ? ` · MKB-10: ${esc(x.icd10_code)}` : ""}`;
+  return `<details class="differential-item ${x.red_flag ? "red-flag" : ""} ${status}" open><summary><div><strong>${esc(x.name)}</strong><span>${categoryLabel}</span></div><div class="match-score"><b>${x.match_score}/100</b><small>${esc(x.match_level)} podudaranje</small></div></summary><div class="match-bar"><i style="width:${x.match_score}%"></i></div><span class="candidate-state ${status}">${statusText}</span>${x.supporting_evidence.length ? `<p><b>Podržavaju:</b> ${esc(x.supporting_evidence.join("; "))}</p>` : ""}${x.contradicting_evidence.length ? `<p><b>Ne uklapa se:</b> ${esc(x.contradicting_evidence.join("; "))}</p>` : ""}${x.missing_information.length ? `<p><b>Potrebno proveriti:</b> ${esc(x.missing_information.join("; "))}</p>` : ""}${x.doctor_note ? `<p><b>Napomena lekara:</b> ${esc(x.doctor_note)}</p>` : ""}${x.red_flag ? '<span class="badge warn">Ne propustiti / razmotriti isključivanje</span>' : ""}${status === "pending" ? `<div class="candidate-review"><input class="doctor-note" data-candidate="${x.id}" placeholder="Opciona napomena lekara"><label><input type="checkbox" class="add-to-scribe" data-candidate="${x.id}"> Dodaj potvrđenu sugestiju u najnoviji AI nacrt pregleda</label><div><button class="button primary candidate-action" data-id="${x.id}" data-status="accepted">Potvrdi za razmatranje</button><button class="button secondary candidate-action" data-id="${x.id}" data-status="dismissed">Odbaci sugestiju</button></div></div>` : ""}${x.reviewed_by ? `<small>Pregledao: ${esc(x.reviewed_by)} · ${new Date(x.reviewed_at).toLocaleString("sr-Latn-RS")}</small>` : ""}</details>`;
 }
 function renderDifferential(d) {
   activeDifferentialAnalysis = d;
@@ -2292,6 +2371,132 @@ $("#paymentForm").onsubmit = async (e) => {
     await loadInvoiceList();
     await loadFinanceSummary();
     await loadOutstanding();
+  } catch (x) {
+    toast(x.message);
+  }
+};
+
+/* === Pedijatrija (specijalistički modul) === */
+async function loadPediatrics() {
+  if (!activePatient || !["doctor", "receptionist", "admin"].includes(currentUser.role)) return;
+  try {
+    const profile = await api(`/api/patients/${activePatient.id}/pediatric-profile`);
+    if (profile) {
+      $("#guardianForm [name=guardian_name]").value = profile.guardian_name || "";
+      $("#guardianForm [name=guardian_relationship]").value = profile.guardian_relationship || "";
+      $("#guardianForm [name=guardian_phone]").value = profile.guardian_phone || "";
+    } else {
+      $("#guardianForm").reset();
+    }
+  } catch {}
+  if (!["doctor", "admin"].includes(currentUser.role)) return;
+  await Promise.all([loadGrowthMeasurements(), loadVaccinations()]);
+}
+$("#guardianForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  Object.keys(d).forEach((k) => {
+    if (!d[k]) d[k] = null;
+  });
+  try {
+    await api(`/api/patients/${activePatient.id}/pediatric-profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    toast("Podaci o staratelju su sačuvani");
+  } catch (x) {
+    toast(x.message);
+  }
+};
+
+async function loadGrowthMeasurements() {
+  const rows = await api(`/api/patients/${activePatient.id}/growth-measurements`);
+  $("#growthList").innerHTML = rows.length
+    ? rows
+        .slice()
+        .reverse()
+        .map((m) => {
+          const parts = [];
+          if (m.height_cm != null) parts.push(`Visina: ${m.height_cm} cm`);
+          if (m.weight_kg != null) parts.push(`Težina: ${m.weight_kg} kg`);
+          if (m.head_circumference_cm != null) parts.push(`Obim glave: ${m.head_circumference_cm} cm`);
+          return `<div class="row"><div><strong>${fmtDate(m.measured_at)}</strong><p>${esc(parts.join(" · "))}</p>${m.notes ? `<small class="muted">${esc(m.notes)}</small>` : ""}</div></div>`;
+        })
+        .join("")
+    : '<p class="muted">Još nema evidentiranih merenja.</p>';
+  const weightPts = rows.filter((r) => r.weight_kg != null).map((r) => ({ date: r.measured_at, value: r.weight_kg, unit: "kg" }));
+  if (weightPts.length > 1) {
+    $("#growthChart").classList.remove("hidden");
+    $("#growthChart").innerHTML = `<h4>Trend težine</h4>${renderLabTrendChart(weightPts, "Težina")}`;
+  } else {
+    $("#growthChart").classList.add("hidden");
+    $("#growthChart").innerHTML = "";
+  }
+}
+$("#addGrowthBtn").onclick = () => {
+  if (!activePatient) return toast("Prvo izaberite pacijenta");
+  $("#growthForm").reset();
+  $("#growthForm [name=measured_at]").value = new Date().toISOString().slice(0, 10);
+  $("#growthError").classList.add("hidden");
+  $("#growthDialog").showModal();
+};
+$("#growthForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  ["height_cm", "weight_kg", "head_circumference_cm"].forEach((k) => {
+    d[k] = d[k] ? parseFloat(d[k]) : null;
+  });
+  if (!d.notes) delete d.notes;
+  d.measured_at = new Date(d.measured_at).toISOString();
+  $("#growthError").classList.add("hidden");
+  try {
+    await api(`/api/patients/${activePatient.id}/growth-measurements`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    $("#growthDialog").close();
+    toast("Merenje je sačuvano");
+    await loadGrowthMeasurements();
+  } catch (x) {
+    $("#growthError").textContent = x.message;
+    $("#growthError").classList.remove("hidden");
+  }
+};
+
+async function loadVaccinations() {
+  const rows = await api(`/api/patients/${activePatient.id}/vaccinations`);
+  $("#vaccinationList").innerHTML = rows.length
+    ? rows
+        .map(
+          (v) =>
+            `<div class="row"><div><strong>${esc(v.vaccine_name)}</strong><p>${new Date(v.administered_at).toLocaleDateString("sr-Latn-RS")}${v.lot_number ? " · serija " + esc(v.lot_number) : ""}${v.administered_by ? " · " + esc(v.administered_by) : ""}</p>${v.notes ? `<small class="muted">${esc(v.notes)}</small>` : ""}</div><small class="muted">Uneo: ${esc(v.recorded_by_name)}</small></div>`,
+        )
+        .join("")
+    : '<p class="muted">Još nema evidentiranih vakcina.</p>';
+}
+$("#addVaccinationBtn").onclick = () => {
+  if (!activePatient) return toast("Prvo izaberite pacijenta");
+  $("#vaccinationForm").reset();
+  $("#vaccinationForm [name=administered_at]").value = new Date().toISOString().slice(0, 10);
+  $("#vaccinationDialog").showModal();
+};
+$("#vaccinationForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  ["lot_number", "administered_by", "notes"].forEach((k) => {
+    if (!d[k]) delete d[k];
+  });
+  try {
+    await api(`/api/patients/${activePatient.id}/vaccinations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(d),
+    });
+    $("#vaccinationDialog").close();
+    toast("Vakcina je evidentirana");
+    await loadVaccinations();
   } catch (x) {
     toast(x.message);
   }

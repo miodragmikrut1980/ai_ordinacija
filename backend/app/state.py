@@ -29,6 +29,13 @@ except OSError:
 
 SESSION_MINUTES = int(os.getenv("CLINIC_SESSION_MINUTES", "60"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("CLINIC_RATE_LIMIT_PER_MINUTE", "240"))
+# Fixed clinic-wide working hours for patient-portal online booking (see
+# store.py:available_slots). One shared window, not per-clinician
+# schedules -- a real simplification, not a fabricated per-doctor config
+# nobody set up.
+PORTAL_WORK_START_HOUR = int(os.getenv("CLINIC_WORKING_HOURS_START", "8"))
+PORTAL_WORK_END_HOUR = int(os.getenv("CLINIC_WORKING_HOURS_END", "16"))
+PORTAL_SESSION_MINUTES = int(os.getenv("CLINIC_PORTAL_SESSION_MINUTES", "60"))
 # Off by default: only enable this when the app is reachable exclusively
 # through a reverse proxy that you control, which overwrites/strips
 # X-Forwarded-For for external clients before setting its own value. If this

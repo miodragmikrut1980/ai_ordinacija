@@ -138,6 +138,53 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_reminders_org ON reminders(organization_id, status, send_at);
 CREATE INDEX IF NOT EXISTS idx_reminders_appointment ON reminders(appointment_id);
 
+CREATE TABLE IF NOT EXISTS portal_accounts (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    username TEXT NOT NULL, username_lower TEXT NOT NULL, password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, must_change_password INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_portal_accounts_username ON portal_accounts(organization_id, username_lower);
+CREATE INDEX IF NOT EXISTS idx_portal_accounts_patient ON portal_accounts(organization_id, patient_id);
+
+CREATE TABLE IF NOT EXISTS portal_sessions (
+    id TEXT NOT NULL, token TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portal_sessions_account ON portal_sessions(account_id);
+
+CREATE TABLE IF NOT EXISTS consents (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    consent_type TEXT NOT NULL, accepted_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_consents_patient ON consents(organization_id, patient_id, consent_type);
+
+CREATE TABLE IF NOT EXISTS portal_messages (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    sender_type TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_portal_messages_patient ON portal_messages(organization_id, patient_id, created_at);
+
+CREATE TABLE IF NOT EXISTS questionnaire_responses (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    appointment_id TEXT, submitted_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_questionnaire_patient ON questionnaire_responses(organization_id, patient_id);
+
+CREATE TABLE IF NOT EXISTS pediatric_profiles (
+    patient_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, updated_at TEXT NOT NULL, data BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS growth_measurements (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    measured_at TEXT NOT NULL, created_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_growth_patient ON growth_measurements(organization_id, patient_id, measured_at);
+
+CREATE TABLE IF NOT EXISTS vaccinations (
+    id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, patient_id TEXT NOT NULL,
+    administered_at TEXT NOT NULL, created_at TEXT NOT NULL, data BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vaccinations_patient ON vaccinations(organization_id, patient_id, administered_at);
+
 CREATE TABLE IF NOT EXISTS services (
     id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, active INTEGER NOT NULL,
     created_at TEXT NOT NULL, data BLOB NOT NULL
@@ -730,22 +777,24 @@ class PersistentStore:
 
 
     # -- login rate limiting / lockout ---------------------------------------
-    def record_login_attempt(self, org_slug: str, username: str, success: bool) -> None:
+    def record_login_attempt(self, org_slug: str, username: str, success: bool, realm: str = 'staff') -> None:
+        key = f'{realm}:{org_slug.lower()}'
         with self._lock, self._conn:
             self._conn.execute(
                 "INSERT INTO login_attempts(organization_slug,username_lower,occurred_at,success) VALUES (?,?,?,?)",
-                (org_slug.lower(), username.lower(), _iso(_now()), int(success)),
+                (key, username.lower(), _iso(_now()), int(success)),
             )
             # keep the table small: this identity does not need attempts older than a day
             self._conn.execute(
                 "DELETE FROM login_attempts WHERE organization_slug=? AND username_lower=? AND occurred_at<?",
-                (org_slug.lower(), username.lower(), _iso(_now() - timedelta(days=1))),
+                (key, username.lower(), _iso(_now() - timedelta(days=1))),
             )
 
-    def is_locked_out(self, org_slug: str, username: str) -> tuple[bool, int]:
+    def is_locked_out(self, org_slug: str, username: str, realm: str = 'staff') -> tuple[bool, int]:
+        key = f'{realm}:{org_slug.lower()}'
         rows = self._all(
             "SELECT occurred_at, success FROM login_attempts WHERE organization_slug=? AND username_lower=? ORDER BY occurred_at DESC LIMIT ?",
-            (org_slug.lower(), username.lower(), LOCKOUT_THRESHOLD),
+            (key, username.lower(), LOCKOUT_THRESHOLD),
         )
         if len(rows) < LOCKOUT_THRESHOLD or any(r["success"] for r in rows):
             return False, 0
@@ -787,6 +836,18 @@ class PersistentStore:
         with self._lock, self._conn:
             return self._insert_audit_row_locked(
                 user.organization_id, _iso(_now()), user.id, user.username, user.role, action, resource_type, resource_id, detail,
+            )
+
+    def audit_portal(self, account, action, resource_type, resource_id=None, detail=None) -> AuditRecord:
+        """Same tamper-evident audit log as staff actions (audit()), but for
+        a PortalAccountRecord, which has no `role` -- patient portal actions
+        are recorded with role='patient' so they're clearly distinguishable
+        in the log from staff activity, in the same shared per-organization
+        hash chain (one continuous chain of custody, not two separate ones
+        that could be reconciled inconsistently)."""
+        with self._lock, self._conn:
+            return self._insert_audit_row_locked(
+                account.organization_id, _iso(_now()), account.id, account.username, 'patient', action, resource_type, resource_id, detail,
             )
 
     def _audit_from_row(self, row) -> AuditRecord:
@@ -1177,6 +1238,241 @@ class PersistentStore:
                 "UPDATE reminders SET status='cancelled' WHERE organization_id=? AND appointment_id=? AND status='pending'",
                 (org, appointment_id),
             )
+
+    # -- pacijentski portal ------------------------------------------------------
+    def create_portal_account(self, org: str, patient_id: str, p: PortalAccountCreate) -> PortalAccountRecord:
+        account_id = str(uuid4())
+        with self._lock, self._conn:
+            try:
+                self._conn.execute(
+                    "INSERT INTO portal_accounts(id,organization_id,patient_id,username,username_lower,password_hash,created_at,active,must_change_password) VALUES (?,?,?,?,?,?,?,1,1)",
+                    (account_id, org, patient_id, p.username, p.username.lower(), _hash_password(p.password), _iso(_now())),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Portal username already exists in this clinic") from exc
+        return self.get_portal_account(account_id)
+
+    def _portal_account_from_row(self, row) -> PortalAccountRecord:
+        return PortalAccountRecord(
+            id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+            username=row["username"], created_at=row["created_at"], active=bool(row["active"]),
+            must_change_password=bool(row["must_change_password"]),
+        )
+
+    def get_portal_account(self, account_id: str) -> PortalAccountRecord | None:
+        row = self._one("SELECT * FROM portal_accounts WHERE id=?", (account_id,))
+        return self._portal_account_from_row(row) if row else None
+
+    def get_portal_account_for_patient(self, org: str, patient_id: str) -> PortalAccountRecord | None:
+        row = self._one("SELECT * FROM portal_accounts WHERE organization_id=? AND patient_id=?", (org, patient_id))
+        return self._portal_account_from_row(row) if row else None
+
+    def authenticate_portal(self, org_slug: str, username: str, password: str) -> PortalAccountRecord | None:
+        org = self.organization_by_slug(org_slug)
+        row = None
+        if org:
+            row = self._one("SELECT * FROM portal_accounts WHERE organization_id=? AND username_lower=? AND active=1", (org.id, username.lower()))
+        password_hash = row["password_hash"] if row else _DUMMY_HASH
+        password_ok = _verify_password(password, password_hash)
+        if not row or not password_ok:
+            return None
+        return self.get_portal_account(row["id"])
+
+    def portal_change_password(self, account_id: str, new_password: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE portal_accounts SET password_hash=?, must_change_password=0 WHERE id=?",
+                (_hash_password(new_password), account_id),
+            )
+        self.delete_portal_sessions_for_account(account_id)
+
+    def create_portal_session(self, account_id: str, minutes: int) -> tuple[str, datetime]:
+        token = secrets.token_urlsafe(32)
+        expires_at = _now() + timedelta(minutes=minutes)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO portal_sessions(id,token,account_id,created_at,expires_at) VALUES (?,?,?,?,?)",
+                (str(uuid4()), token, account_id, _iso(_now()), _iso(expires_at)),
+            )
+        return token, expires_at
+
+    def get_portal_session(self, token: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM portal_sessions WHERE token=?", (token,)).fetchone()
+            if not row:
+                return None
+            expires_at = datetime.fromisoformat(row["expires_at"])
+            if expires_at <= _now():
+                with self._conn:
+                    self._conn.execute("DELETE FROM portal_sessions WHERE token=?", (token,))
+                return None
+            return {"account_id": row["account_id"], "expires_at": expires_at}
+
+    def touch_portal_session(self, token: str, minutes: int) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE portal_sessions SET expires_at=? WHERE token=?", (_iso(_now() + timedelta(minutes=minutes)), token))
+
+    def delete_portal_session(self, token: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM portal_sessions WHERE token=?", (token,))
+
+    def delete_portal_sessions_for_account(self, account_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM portal_sessions WHERE account_id=?", (account_id,))
+
+    def accept_consent(self, org: str, patient_id: str, consent_type: str, text_version: str) -> ConsentRecord:
+        consent_id = str(uuid4())
+        blob = self._seal({"consent_text_version": text_version})
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO consents(id,organization_id,patient_id,consent_type,accepted_at,data) VALUES (?,?,?,?,?,?)",
+                (consent_id, org, patient_id, consent_type, _iso(_now()), blob),
+            )
+        row = self._one("SELECT * FROM consents WHERE id=?", (consent_id,))
+        return self._consent_from_row(row)
+
+    def _consent_from_row(self, row) -> ConsentRecord:
+        payload = self._unseal(row["data"])
+        return ConsentRecord(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                              consent_type=row["consent_type"], accepted_at=row["accepted_at"], **payload)
+
+    def latest_consent(self, org: str, patient_id: str, consent_type: str) -> ConsentRecord | None:
+        row = self._one("SELECT * FROM consents WHERE organization_id=? AND patient_id=? AND consent_type=? ORDER BY accepted_at DESC LIMIT 1", (org, patient_id, consent_type))
+        return self._consent_from_row(row) if row else None
+
+    def create_portal_message(self, org: str, patient_id: str, sender_type: str, sender_name: str, body: str) -> PortalMessageRecord:
+        message_id = str(uuid4())
+        blob = self._seal({"sender_name": sender_name, "body": body})
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO portal_messages(id,organization_id,patient_id,sender_type,created_at,read_at,data) VALUES (?,?,?,?,?,?,?)",
+                (message_id, org, patient_id, sender_type, _iso(_now()), None, blob),
+            )
+        row = self._one("SELECT * FROM portal_messages WHERE id=?", (message_id,))
+        return self._portal_message_from_row(row)
+
+    def _portal_message_from_row(self, row) -> PortalMessageRecord:
+        payload = self._unseal(row["data"])
+        return PortalMessageRecord(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                                    sender_type=row["sender_type"], created_at=row["created_at"], read_at=row["read_at"], **payload)
+
+    def list_portal_messages(self, org: str, patient_id: str) -> list[PortalMessageRecord]:
+        rows = self._all("SELECT * FROM portal_messages WHERE organization_id=? AND patient_id=? ORDER BY created_at", (org, patient_id))
+        return [self._portal_message_from_row(r) for r in rows]
+
+    def mark_portal_messages_read(self, org: str, patient_id: str, sender_type_to_mark: str) -> None:
+        """Marks the OTHER side's messages read -- staff opening a thread
+        marks the patient's messages read, and vice versa."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE portal_messages SET read_at=? WHERE organization_id=? AND patient_id=? AND sender_type=? AND read_at IS NULL",
+                (_iso(_now()), org, patient_id, sender_type_to_mark),
+            )
+
+    def create_questionnaire_response(self, org: str, patient_id: str, p: QuestionnaireSubmit) -> QuestionnaireResponseRecord:
+        response_id = str(uuid4())
+        data = p.model_dump(mode="json")
+        appointment_id = data.pop("appointment_id", None)
+        blob = self._seal(data)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO questionnaire_responses(id,organization_id,patient_id,appointment_id,submitted_at,data) VALUES (?,?,?,?,?,?)",
+                (response_id, org, patient_id, appointment_id, _iso(_now()), blob),
+            )
+        row = self._one("SELECT * FROM questionnaire_responses WHERE id=?", (response_id,))
+        return self._questionnaire_from_row(row)
+
+    def _questionnaire_from_row(self, row) -> QuestionnaireResponseRecord:
+        payload = self._unseal(row["data"])
+        return QuestionnaireResponseRecord(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                                            appointment_id=row["appointment_id"], submitted_at=row["submitted_at"], **payload)
+
+    def list_questionnaire_responses(self, org: str, patient_id: str) -> list[QuestionnaireResponseRecord]:
+        rows = self._all("SELECT * FROM questionnaire_responses WHERE organization_id=? AND patient_id=? ORDER BY submitted_at DESC", (org, patient_id))
+        return [self._questionnaire_from_row(r) for r in rows]
+
+    def available_slots(self, org: str, clinician_id: str | None, day: str, duration_minutes: int,
+                         work_start_hour: int, work_end_hour: int, slot_step_minutes: int = 20) -> list[datetime]:
+        """Free appointment start times on `day` (ISO date) within fixed
+        clinic working hours. A simple, honest simplification: this is one
+        shared working-hours window for the whole clinic (see
+        CLINIC_WORKING_HOURS_START/END in .env.example), not a
+        per-clinician configurable schedule -- that's a real fast-follow,
+        not something to fake with per-doctor hours nobody configured."""
+        base = datetime.fromisoformat(day)
+        day_start = base.replace(hour=work_start_hour, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+        day_end = base.replace(hour=work_end_hour, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+        slots = []
+        cursor = day_start
+        now = _now()
+        while cursor + timedelta(minutes=duration_minutes) <= day_end:
+            if cursor > now and not self.find_appointment_conflict(org, clinician_id, None, cursor, duration_minutes):
+                slots.append(cursor)
+            cursor += timedelta(minutes=slot_step_minutes)
+        return slots
+
+    # -- specijalistički modul: pedijatrija ------------------------------------------------------
+    def upsert_pediatric_profile(self, org: str, patient_id: str, p: PediatricProfileUpdate) -> PediatricProfileRecord:
+        blob = self._seal(p.model_dump())
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO pediatric_profiles(patient_id,organization_id,updated_at,data) VALUES (?,?,?,?) "
+                "ON CONFLICT(patient_id) DO UPDATE SET updated_at=excluded.updated_at, data=excluded.data",
+                (patient_id, org, _iso(_now()), blob),
+            )
+        return self.get_pediatric_profile(org, patient_id)
+
+    def get_pediatric_profile(self, org: str, patient_id: str) -> PediatricProfileRecord | None:
+        row = self._one("SELECT * FROM pediatric_profiles WHERE organization_id=? AND patient_id=?", (org, patient_id))
+        if not row:
+            return None
+        payload = self._unseal(row["data"])
+        return PediatricProfileRecord(patient_id=row["patient_id"], organization_id=row["organization_id"], updated_at=row["updated_at"], **payload)
+
+    def add_growth_measurement(self, org: str, patient_id: str, p: GrowthMeasurementCreate) -> GrowthMeasurementRecord:
+        record_id = str(uuid4())
+        data = p.model_dump(mode="json")
+        measured_at = data.pop("measured_at")
+        blob = self._seal(data)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO growth_measurements(id,organization_id,patient_id,measured_at,created_at,data) VALUES (?,?,?,?,?,?)",
+                (record_id, org, patient_id, measured_at, _iso(_now()), blob),
+            )
+        row = self._one("SELECT * FROM growth_measurements WHERE id=?", (record_id,))
+        return self._growth_from_row(row)
+
+    def _growth_from_row(self, row) -> GrowthMeasurementRecord:
+        payload = self._unseal(row["data"])
+        return GrowthMeasurementRecord(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                                        measured_at=row["measured_at"], created_at=row["created_at"], **payload)
+
+    def list_growth_measurements(self, org: str, patient_id: str) -> list[GrowthMeasurementRecord]:
+        rows = self._all("SELECT * FROM growth_measurements WHERE organization_id=? AND patient_id=? ORDER BY measured_at", (org, patient_id))
+        return [self._growth_from_row(r) for r in rows]
+
+    def add_vaccination(self, org: str, patient_id: str, p: VaccinationCreate, recorded_by_name: str) -> VaccinationRecord:
+        record_id = str(uuid4())
+        data = p.model_dump(mode="json")
+        administered_at = data.pop("administered_at")
+        data["recorded_by_name"] = recorded_by_name
+        blob = self._seal(data)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO vaccinations(id,organization_id,patient_id,administered_at,created_at,data) VALUES (?,?,?,?,?,?)",
+                (record_id, org, patient_id, administered_at, _iso(_now()), blob),
+            )
+        row = self._one("SELECT * FROM vaccinations WHERE id=?", (record_id,))
+        return self._vaccination_from_row(row)
+
+    def _vaccination_from_row(self, row) -> VaccinationRecord:
+        payload = self._unseal(row["data"])
+        return VaccinationRecord(id=row["id"], organization_id=row["organization_id"], patient_id=row["patient_id"],
+                                  administered_at=row["administered_at"], created_at=row["created_at"], **payload)
+
+    def list_vaccinations(self, org: str, patient_id: str) -> list[VaccinationRecord]:
+        rows = self._all("SELECT * FROM vaccinations WHERE organization_id=? AND patient_id=? ORDER BY administered_at DESC", (org, patient_id))
+        return [self._vaccination_from_row(r) for r in rows]
 
     # -- finansije -------------------------------------------------------------
     def create_service(self, org: str, p: ServiceCreate) -> ServiceRecord:

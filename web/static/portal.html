@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="sr-Latn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portal pacijenta</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/portal.css" />
+  </head>
+  <body class="portal-body">
+    <div id="toast" class="toast"></div>
+
+    <!-- Prijava -->
+    <section id="portalLogin" class="portal-auth-wrap">
+      <form id="portalLoginForm" class="card portal-auth-card">
+        <div class="portal-brand">
+          <div class="brand-mark">P</div>
+          <div>
+            <strong>Portal pacijenta</strong>
+            <span>Vaša ordinacija</span>
+          </div>
+        </div>
+        <label>Ordinacija (šifra)<input name="organization" required placeholder="npr. demo-clinic" /></label>
+        <label>Korisničko ime<input name="username" required autocomplete="username" /></label>
+        <label>Lozinka<input name="password" type="password" required autocomplete="current-password" /></label>
+        <p id="portalLoginError" class="field-error hidden"></p>
+        <button class="button primary full">Prijavi se</button>
+        <p class="muted portal-auth-hint">Nalog dobijate od osoblja ordinacije. Ako nemate nalog, obratite se recepciji.</p>
+      </form>
+    </section>
+
+    <!-- Prisilna promena lozinke -->
+    <section id="portalForcePassword" class="portal-auth-wrap hidden">
+      <form id="portalForcePasswordForm" class="card portal-auth-card">
+        <div class="portal-brand">
+          <div class="brand-mark">P</div>
+          <div><strong>Postavite novu lozinku</strong><span>Prva prijava zahteva promenu</span></div>
+        </div>
+        <label>Trenutna (privremena) lozinka<input name="current_password" type="password" required /></label>
+        <label>Nova lozinka (najmanje 8 karaktera, slovo i broj)<input name="new_password" type="password" required minlength="8" /></label>
+        <p id="portalForceError" class="field-error hidden"></p>
+        <button class="button primary full">Sačuvaj i nastavi</button>
+      </form>
+    </section>
+
+    <!-- Glavni portal -->
+    <div id="portalApp" class="portal-shell hidden">
+      <header class="portal-topbar">
+        <div class="portal-brand">
+          <div class="brand-mark">P</div>
+          <div><strong>Portal pacijenta</strong><span id="portalPatientName"></span></div>
+        </div>
+        <nav class="portal-nav">
+          <button class="portal-nav-item active" data-view="termini">Termini</button>
+          <button class="portal-nav-item" data-view="poruke">Poruke<span id="msgBadge" class="tab-flag hidden"></span></button>
+          <button class="portal-nav-item" data-view="nalazi">Nalazi</button>
+          <button class="portal-nav-item" data-view="upitnik">Upitnik</button>
+          <button class="portal-nav-item" data-view="pristanak">Pristanak</button>
+        </nav>
+        <button id="portalLogoutBtn" class="icon-button text-icon" title="Odjavi se">Odjava</button>
+      </header>
+
+      <main class="portal-main">
+        <!-- Termini -->
+        <section id="pv-termini" class="portal-view">
+          <div class="card panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">MOJI TERMINI</p><h3>Zakazani pregledi</h3></div>
+              <button class="button primary" id="portalNewApptBtn">+ Zakaži termin</button>
+            </div>
+            <div id="portalApptList" class="list"></div>
+          </div>
+        </section>
+
+        <!-- Poruke -->
+        <section id="pv-poruke" class="portal-view hidden">
+          <div class="card panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">BEZBEDNE PORUKE</p><h3>Komunikacija sa ordinacijom</h3></div>
+            </div>
+            <div id="portalChat" class="chat"></div>
+            <form id="portalMessageForm" class="chat-form">
+              <input id="portalMessageInput" placeholder="Napišite poruku…" required />
+              <button class="button primary">Pošalji</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- Nalazi -->
+        <section id="pv-nalazi" class="portal-view hidden">
+          <div class="card panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">POTVRĐENI NALAZI</p><h3>Laboratorijski rezultati</h3></div>
+            </div>
+            <p class="muted">Prikazani su samo nalazi koje je lekar pregledao i potvrdio.</p>
+            <div id="portalLabList" class="list"></div>
+          </div>
+        </section>
+
+        <!-- Upitnik -->
+        <section id="pv-upitnik" class="portal-view hidden">
+          <div class="card panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">PRIPREMA PRE PREGLEDA</p><h3>Digitalni upitnik</h3></div>
+            </div>
+            <form id="portalQuestionnaireForm">
+              <label>Glavna tegoba<input name="chief_complaint" required maxlength="300" placeholder="npr. Bol u grlu tri dana" /></label>
+              <label>Opišite simptome<textarea name="symptoms_text" maxlength="3000" placeholder="Kada su počeli, šta ih pogoršava/olakšava…"></textarea></label>
+              <label class="portal-checkbox"><input type="checkbox" name="confirmed_allergies" /> Potvrđujem da su moje alergije u sistemu tačne i ažurne</label>
+              <label class="portal-checkbox"><input type="checkbox" name="confirmed_medications" /> Potvrđujem da je moja trenutna terapija u sistemu tačna i ažurna</label>
+              <label>Dodatne napomene za lekara<textarea name="additional_notes" maxlength="2000"></textarea></label>
+              <button class="button primary full">Pošalji upitnik</button>
+            </form>
+            <h4 class="portal-subhead">Prethodno poslati upitnici</h4>
+            <div id="portalQuestionnaireList" class="list"></div>
+          </div>
+        </section>
+
+        <!-- Pristanak -->
+        <section id="pv-pristanak" class="portal-view hidden">
+          <div class="card panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">ZAŠTITA PODATAKA</p><h3>Pristanak za obradu podataka</h3></div>
+            </div>
+            <div id="portalConsentStatus" class="portal-consent-status"></div>
+            <p id="portalConsentText" class="portal-consent-text"></p>
+            <button class="button primary" id="portalAcceptConsentBtn">Prihvatam</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="portalApptDialog">
+      <form id="portalApptForm">
+        <div class="dialog-head">
+          <h2>Zakaži termin</h2>
+          <button type="button" class="icon-button close">×</button>
+        </div>
+        <label
+          >Lekar<select id="portalApptClinician" required>
+            <option value="">Izaberite lekara</option>
+          </select></label
+        ><label>Datum<input id="portalApptDate" type="date" required /></label>
+        <label
+          >Slobodni termini<select id="portalApptSlot" required>
+            <option value="">Prvo izaberite lekara i datum</option>
+          </select></label
+        ><label>Razlog dolaska<input id="portalApptReason" required maxlength="240" placeholder="npr. Kontrolni pregled" /></label>
+        <p id="portalApptError" class="field-error hidden"></p>
+        <button class="button primary full">Potvrdi termin</button>
+      </form>
+    </dialog>
+
+    <script src="/static/portal.js"></script>
+  </body>
+</html>

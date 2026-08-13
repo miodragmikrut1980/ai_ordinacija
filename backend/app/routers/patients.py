@@ -9,15 +9,32 @@ from ..deps import current_user, patient_or_404, require_roles
 from ..extractors import UnsupportedDocumentError, extract_text_with_method
 from ..epidemiology import build_radar
 from ..laboratory import extract_lab_candidates
-from ..medication_safety import check_medication_safety
+from ..medication_safety import check_medication_safety, rule_catalog
+from ..standards import ICD10_CODES, LAB_STANDARDS
 from ..models import (
     ChatRequest, ClinicalProfileUpdate,
     DashboardOverview, DocumentArchiveRequest, EncounterCreate, LabResultCreate, LabResultStatusUpdate,
     MedicationSafetyRequest, PatientCreate, PatientOverview, PendingRedFlag,
+    PortalAccountCreate, PortalMessageCreate, QuestionnaireSubmit,
 )
 from ..state import ai, store
 
 router = APIRouter()
+
+
+@router.get('/api/lab-standards')
+def lab_standards(user=Depends(current_user)):
+    """Seed LOINC codes + general reference ranges for the tests
+    laboratory.py already recognizes. See standards.py for scope notes --
+    this is a small, correct, extensible set, not a full LOINC service."""
+    return {name: std.model_dump() for name, std in LAB_STANDARDS.items()}
+
+
+@router.get('/api/icd10-codes')
+def icd10_codes(user=Depends(current_user)):
+    """Seed ICD-10/MKB-10 codes for the conditions differential.py already
+    recognizes. See standards.py for scope notes."""
+    return ICD10_CODES
 
 
 @router.post('/api/patients')
@@ -91,7 +108,7 @@ async def upload(patient_id: str, file: UploadFile = File(...), user=Depends(req
     if len(raw) > 15 * 1024 * 1024:
         raise HTTPException(413, 'Maximum file size is 15 MB')
     try:
-        text, extraction_method = extract_text_with_method(file.filename or 'document', raw)
+        text, extraction_method, page_offsets = extract_text_with_method(file.filename or 'document', raw)
     except UnsupportedDocumentError as e:
         raise HTTPException(415, str(e))
     except Exception as e:
@@ -99,7 +116,7 @@ async def upload(patient_id: str, file: UploadFile = File(...), user=Depends(req
     if not text:
         raise HTTPException(422, 'No readable text was found in the document')
     r = store.add_document(user.organization_id, patient_id, file.filename or 'document', file.content_type or 'application/octet-stream', text, raw, extraction_method)
-    candidates = extract_lab_candidates(text)
+    candidates = extract_lab_candidates(text, page_offsets=page_offsets)
     for candidate, abnormality in candidates:
         store.add_lab_result(user.organization_id, patient_id, candidate, source_document_id=r.id, status='draft', abnormality=abnormality)
     store.audit(user, 'upload', 'document', r.id, f'{r.filename}; OCR={extraction_method}; lab drafts={len(candidates)}')
@@ -175,6 +192,19 @@ def lab_results(patient_id: str, user=Depends(require_roles('doctor', 'admin')))
     return store.list_lab_results(user.organization_id, patient_id)
 
 
+@router.get('/api/patients/{patient_id}/lab-results/trend')
+def lab_results_trend(patient_id: str, name: str, user=Depends(require_roles('doctor', 'admin'))):
+    """Chronological history of one named test for the trend chart in the
+    Laboratorija tab. Only verified/rejected results are meaningless to
+    exclude here -- a doctor tracking a trend wants to see everything,
+    including still-unconfirmed drafts, clearly labeled as such by the
+    frontend (same 'draft' status already surfaced in the regular list)."""
+    patient_or_404(user, patient_id)
+    rows = [r for r in store.list_lab_results(user.organization_id, patient_id) if r.name == name and r.value is not None]
+    rows.sort(key=lambda r: r.collected_at or r.created_at)
+    return [{'date': (r.collected_at or r.created_at).isoformat(), 'value': r.value, 'unit': r.unit, 'status': r.status, 'abnormality': r.abnormality} for r in rows]
+
+
 @router.post('/api/patients/{patient_id}/lab-results')
 def create_lab_result(patient_id: str, payload: LabResultCreate, user=Depends(require_roles('doctor', 'admin'))):
     patient_or_404(user, patient_id)
@@ -197,9 +227,18 @@ def update_lab_result_status(patient_id: str, result_id: str, payload: LabResult
 def medication_safety_check(patient_id: str, payload: MedicationSafetyRequest, user=Depends(require_roles('doctor', 'admin'))):
     patient = patient_or_404(user, patient_id)
     profile = patient.clinical_profile
-    result = check_medication_safety(profile.current_medications, payload.proposed_medications, profile.allergies)
+    result = check_medication_safety(profile.current_medications, payload.proposed_medications, profile.allergies,
+                                      diagnoses=profile.diagnoses, medical_history=profile.medical_history)
     store.audit(user, 'check', 'medication_safety', patient_id, f'potencijalna upozorenja={len(result.findings)}')
     return result
+
+
+@router.get('/api/medication-safety/rules')
+def medication_safety_rules(user=Depends(require_roles('doctor', 'admin'))):
+    """Full auditable rule catalog for the medication safety screen -- see
+    medication_safety.py:rule_catalog for what 'versioned' honestly means
+    here (a small, diffable ruleset, not a licensed external database)."""
+    return rule_catalog()
 
 
 @router.get('/api/patients/{patient_id}/summary')
@@ -260,3 +299,53 @@ def create_encounter(patient_id: str, payload: EncounterCreate, user=Depends(req
 def encounters(patient_id: str, user=Depends(require_roles('doctor', 'admin'))):
     patient_or_404(user, patient_id)
     return store.list_encounters(user.organization_id, patient_id)
+
+
+# -- pacijentski portal: upravljanje od strane osoblja -------------------------------------------------------------
+
+@router.post('/api/patients/{patient_id}/portal-account')
+def create_portal_account(patient_id: str, payload: PortalAccountCreate, user=Depends(require_roles('receptionist', 'admin'))):
+    """Osoblje bira korisničko ime i početnu lozinku (isti obrazac kao
+    kreiranje naloga osoblja preko /api/users) -- pacijent je dobija lično
+    ili telefonom i menja je pri prvoj prijavi (must_change_password=True).
+    Ovo namerno izbegava potrebu za e-mail/SMS infrastrukturom za slanje
+    pozivnica, koju ova instalacija ne garantuje da ima podešenu."""
+    patient_or_404(user, patient_id)
+    if store.get_portal_account_for_patient(user.organization_id, patient_id):
+        raise HTTPException(409, 'This patient already has a portal account')
+    try:
+        account = store.create_portal_account(user.organization_id, patient_id, payload)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    store.audit(user, 'create', 'portal_account', account.id, payload.username)
+    return {'id': account.id, 'patient_id': account.patient_id, 'username': account.username}
+
+
+@router.get('/api/patients/{patient_id}/portal-account')
+def get_portal_account(patient_id: str, user=Depends(require_roles('receptionist', 'admin'))):
+    patient_or_404(user, patient_id)
+    account = store.get_portal_account_for_patient(user.organization_id, patient_id)
+    if not account:
+        raise HTTPException(404, 'No portal account for this patient')
+    return {'id': account.id, 'patient_id': account.patient_id, 'username': account.username, 'active': account.active}
+
+
+@router.get('/api/patients/{patient_id}/messages')
+def list_patient_messages(patient_id: str, user=Depends(require_roles('doctor', 'receptionist', 'admin'))):
+    patient_or_404(user, patient_id)
+    store.mark_portal_messages_read(user.organization_id, patient_id, 'patient')
+    return store.list_portal_messages(user.organization_id, patient_id)
+
+
+@router.post('/api/patients/{patient_id}/messages')
+def send_patient_message(patient_id: str, payload: PortalMessageCreate, user=Depends(require_roles('doctor', 'receptionist', 'admin'))):
+    patient_or_404(user, patient_id)
+    r = store.create_portal_message(user.organization_id, patient_id, 'staff', user.full_name, payload.body)
+    store.audit(user, 'send_message', 'portal_message', r.id, patient_id)
+    return r
+
+
+@router.get('/api/patients/{patient_id}/questionnaire-responses')
+def list_patient_questionnaire(patient_id: str, user=Depends(require_roles('doctor', 'admin'))):
+    patient_or_404(user, patient_id)
+    return store.list_questionnaire_responses(user.organization_id, patient_id)

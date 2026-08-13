@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .logging_setup import access_logger, bind_request_id, configure_logging, new_request_id, reset_request_id
 from .routers import admin_tools, auth, clinical_ai, epidemiology, finance, patients, scheduling
+from . import pediatrics, portal
 from .state import APP_VERSION, RATE_LIMIT_PER_MINUTE, SESSION_MINUTES, TRUST_PROXY_HEADERS, WEB_DIR, ai, store
 
 configure_logging()
@@ -19,6 +20,8 @@ app.include_router(auth.router)
 app.include_router(patients.router)
 app.include_router(scheduling.router)
 app.include_router(finance.router)
+app.include_router(portal.router)
+app.include_router(pediatrics.router)
 app.include_router(epidemiology.router)
 app.include_router(clinical_ai.router)
 app.include_router(admin_tools.router)
@@ -110,6 +113,11 @@ async def security_headers(request: Request, call_next):
 @app.get('/')
 def index():
     return FileResponse(WEB_DIR / 'index.html')
+
+
+@app.get('/portal')
+def portal_index():
+    return FileResponse(WEB_DIR / 'portal.html')
 
 
 @app.get('/api/health')

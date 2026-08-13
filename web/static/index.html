@@ -157,7 +157,7 @@
 <strong id="readiness">Empty</strong><span>Status</span>
 </div>
 </div>
-</div><div class="chart-tabs"><button class="chart-tab active" data-tab="pregled" type="button">Pregled</button><button class="chart-tab" data-tab="dokumenti" type="button">Dokumenti</button><button class="chart-tab" data-tab="laboratorija" type="button">Laboratorija<span class="tab-flag hidden" id="labTabFlag"></span></button><button class="chart-tab" data-tab="terapija" type="button">Terapija</button><button class="chart-tab" data-tab="ai" type="button">AI alati</button><button class="chart-tab" data-tab="istorija" type="button">Istorija</button></div><div class="chart-tab-panel active" data-tab-panel="pregled"><div class="clinical-grid">
+</div><div class="chart-tabs"><button class="chart-tab active" data-tab="pregled" type="button">Pregled</button><button class="chart-tab" data-tab="dokumenti" type="button">Dokumenti</button><button class="chart-tab" data-tab="laboratorija" type="button">Laboratorija<span class="tab-flag hidden" id="labTabFlag"></span></button><button class="chart-tab" data-tab="terapija" type="button">Terapija</button><button class="chart-tab" data-tab="ai" type="button">AI alati</button><button class="chart-tab" data-tab="istorija" type="button">Istorija</button><button class="chart-tab" data-tab="pedijatrija" type="button">Pedijatrija</button></div><div class="chart-tab-panel active" data-tab-panel="pregled"><div class="clinical-grid">
 <section class="card panel doctor-only">
 <div class="panel-head">
 <div>
@@ -215,6 +215,7 @@
 <span class="badge">Nacrti zahtevaju potvrdu lekara</span>
 </div>
 <div class="list" id="labResults"></div>
+<div class="lab-trend-panel hidden" id="labTrendChart"></div>
 <div class="review-note">
                 Vrednosti prepoznate iz dokumenta nisu deo zvaničnog kartona dok
                 ih lekar ne proveri prema originalnom nalazu.
@@ -324,7 +325,44 @@
 </div>
 </div>
 <div class="timeline" id="timeline"></div>
-</section></div><section class="card report-bar">
+</section></div><div class="chart-tab-panel" data-tab-panel="pedijatrija"><section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">STARATELJ</p>
+<h3>Kontakt podaci staratelja</h3>
+</div>
+</div>
+<form id="guardianForm" class="form-two">
+<label>Ime i prezime<input name="guardian_name" maxlength="120"/></label>
+<label>Srodstvo<input name="guardian_relationship" maxlength="40" placeholder="npr. majka, otac, staratelj"/></label>
+<label>Telefon<input name="guardian_phone" maxlength="40"/></label>
+<button class="button primary full">Sačuvaj podatke o staratelju</button>
+</form>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">RAST</p>
+<h3>Merenja rasta</h3>
+</div>
+<button type="button" class="button secondary" id="addGrowthBtn">+ Novo merenje</button>
+</div>
+<p class="muted">Prikazan je trend izmerenih vrednosti kroz vreme — sistem ne izračunava i ne prikazuje percentil rasta.</p>
+<div id="growthChart" class="lab-trend-panel hidden"></div>
+<div class="list" id="growthList"></div>
+</section>
+<section class="card panel">
+<div class="panel-head">
+<div>
+<p class="eyebrow">VAKCINACIJA</p>
+<h3>Dnevnik datih vakcina</h3>
+</div>
+<button type="button" class="button secondary" id="addVaccinationBtn">+ Nova vakcina</button>
+</div>
+<p class="muted">Evidencija onoga što je dato — ovo nije raspored ili podsetnik za vakcinaciju.</p>
+<div class="list" id="vaccinationList"></div>
+</section>
+</div><section class="card report-bar">
 <div>
 <p class="eyebrow">IZLAZ ZA LEKARA</p>
 <h3>Generišite izveštaj spreman za proveru</h3>
@@ -626,6 +664,39 @@
 <option value="prenos">Prenos na račun</option>
 </select></label><label>Napomena<input maxlength="200" name="note"/></label>
 <button class="button primary full">Sačuvaj uplatu</button>
+</form>
+</dialog>
+<dialog id="growthDialog">
+<form id="growthForm">
+<div class="dialog-head">
+<h2>Novo merenje rasta</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Datum merenja<input name="measured_at" required type="date"/></label>
+<div class="form-two">
+<label>Visina (cm)<input min="0" max="250" name="height_cm" step="0.1" type="number"/></label>
+<label>Težina (kg)<input min="0" max="200" name="weight_kg" step="0.01" type="number"/></label>
+</div>
+<label>Obim glave (cm)<input min="0" max="70" name="head_circumference_cm" step="0.1" type="number"/></label>
+<label>Napomena<input maxlength="500" name="notes"/></label>
+<p class="field-error hidden" id="growthError"></p>
+<button class="button primary full">Sačuvaj merenje</button>
+</form>
+</dialog>
+<dialog id="vaccinationDialog">
+<form id="vaccinationForm">
+<div class="dialog-head">
+<h2>Nova vakcina</h2>
+<button class="icon-button close" type="button">×</button>
+</div>
+<label>Naziv vakcine<input maxlength="120" name="vaccine_name" required/></label>
+<label>Datum davanja<input name="administered_at" required type="date"/></label>
+<div class="form-two">
+<label>Serija (lot)<input maxlength="60" name="lot_number"/></label>
+<label>Dao/dala<input maxlength="120" name="administered_by" placeholder="npr. ime lekara/ustanove"/></label>
+</div>
+<label>Napomena<input maxlength="500" name="notes"/></label>
+<button class="button primary full">Sačuvaj vakcinu</button>
 </form>
 </dialog>
 <dialog id="passwordDialog">
