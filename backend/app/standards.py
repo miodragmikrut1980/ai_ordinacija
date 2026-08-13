@@ -84,3 +84,33 @@ ICD10_CODES: dict[str, str] = {
     "Pneumonija — potrebno razmotriti/isključiti": "J18.9",
     "Infekcija urinarnog trakta": "N39.0",
 }
+
+# Ključevi identični kanonskim ključevima u medication_safety.py:ALIASES.
+# WHO ATC klasifikacija -- isti princip kao LOINC/MKB-10 iznad: mali,
+# tačan, provériv skup za lekove koje ovaj sistem već prepoznaje, ne
+# pokušaj pune ATC/RxNorm terminološke baze. Za lekove sa više relevantnih
+# klasifikacija (npr. metotreksat kao imunosupresiv naspram citostatika,
+# acetilsalicilna kiselina kao antiagregans naspram analgetika) izabrana
+# je klasifikacija najbliža kontekstu u kom se lek pojavljuje u ovom
+# sistemu — uvek proveriti prema aktuelnom ATC indeksu za tačnu indikaciju.
+ATC_CODES: dict[str, str] = {
+    "warfarin": "B01AA03",
+    "ibuprofen": "M01AE01",
+    "naproxen": "M01AE02",
+    "aspirin": "N02BA01",
+    "tramadol": "N02AX02",
+    "sertraline": "N06AB06",
+    "escitalopram": "N06AB10",
+    "nitroglycerin": "C01DA02",
+    "sildenafil": "G04BE03",
+    "enalapril": "C09AA02",
+    "potassium": "A12BA01",
+    "diazepam": "N05BA01",
+    "oxycodone": "N02AA05",
+    "methotrexate": "L04AX03",
+    "trimethoprim": "J01EA01",
+    "simvastatin": "C10AA01",
+    "clarithromycin": "J01FA09",
+    "amoxicillin": "J01CA04",
+    "metformin": "A10BA02",
+}

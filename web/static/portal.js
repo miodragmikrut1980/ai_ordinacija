@@ -1,13 +1,21 @@
 const $ = (s) => document.querySelector(s),
   $$ = (s) => document.querySelectorAll(s);
 
-// Deliberately a DIFFERENT localStorage key than the staff app
-// (clinic-token) -- opening the portal in the same browser where staff is
-// also logged in must never let one token be mistaken for the other.
-let portalToken = localStorage.getItem("portal-token") || "";
+// Session identity lives in an HttpOnly `portal_session` cookie the server
+// sets on login -- never in localStorage or any other JS-readable place.
+// A different cookie name than the staff app's `clinic_session` (and a
+// completely separate backend session table -- see deps.py) means opening
+// the portal in the same browser where staff is also logged in can never
+// let one session be mistaken for the other.
 let portalAccount = null;
 let clinicianCache = [];
 
+function getCookie(name) {
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${name}=([^;]*)`),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
 const esc = (v = "") =>
   String(v).replace(
     /[&<>'"]/g,
@@ -25,10 +33,13 @@ const fmtDate = (iso) => {
   return `${d.toLocaleDateString("sr-Latn-RS")} ${d.toLocaleTimeString("sr-Latn-RS", { hour: "2-digit", minute: "2-digit" })}`;
 };
 const api = async (u, o = {}) => {
-  o.headers = {
-    ...(o.headers || {}),
-    ...(portalToken ? { Authorization: `Bearer ${portalToken}` } : {}),
-  };
+  o.credentials = "same-origin";
+  const method = (o.method || "GET").toUpperCase();
+  o.headers = { ...(o.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrf = getCookie("csrf_token");
+    if (csrf) o.headers["X-CSRF-Token"] = csrf;
+  }
   const r = await fetch(u, o);
   if (!r.ok) {
     let m = "Zahtev nije uspeo";
@@ -55,12 +66,9 @@ function showScreen(id) {
 }
 
 async function boot() {
-  if (!portalToken) return showScreen("#portalLogin");
   try {
     portalAccount = await api("/api/portal/auth/me");
   } catch {
-    portalToken = "";
-    localStorage.removeItem("portal-token");
     return showScreen("#portalLogin");
   }
   if (portalAccount.must_change_password) return showScreen("#portalForcePassword");
@@ -83,8 +91,6 @@ $("#portalLoginForm").onsubmit = async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(d),
     });
-    portalToken = r.token;
-    localStorage.setItem("portal-token", portalToken);
     portalAccount = r.account;
     if (portalAccount.must_change_password) showScreen("#portalForcePassword");
     else await enterApp();
@@ -105,8 +111,6 @@ $("#portalForcePasswordForm").onsubmit = async (e) => {
       body: JSON.stringify(d),
     });
     toast("Lozinka je promenjena. Prijavite se ponovo.");
-    portalToken = "";
-    localStorage.removeItem("portal-token");
     e.target.reset();
     showScreen("#portalLogin");
   } catch (x) {
@@ -119,8 +123,6 @@ $("#portalLogoutBtn").onclick = async () => {
   try {
     await api("/api/portal/auth/logout", { method: "POST" });
   } catch {}
-  portalToken = "";
-  localStorage.removeItem("portal-token");
   showScreen("#portalLogin");
 };
 

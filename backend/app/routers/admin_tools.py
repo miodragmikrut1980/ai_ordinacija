@@ -49,6 +49,7 @@ class SetupChecklist(BaseModel):
     user_count: int = 0
     https_enabled: bool = False
     production_mode: bool = False
+    encryption_key_externally_managed: bool = False
     all_clear: bool = False
 
 
@@ -70,14 +71,37 @@ def setup_checklist(user=Depends(require_roles('admin'))):
         if store.authenticate(org.slug, username, password) is not None
     ]
     users = store.list_users(user.organization_id)
+    # These must match the actual variables start.sh and crypto.py read --
+    # a checklist that checks a variable nothing else in the app reads
+    # (CLINIC_SSL_CERTFILE was never a real setting here) is worse than no
+    # checklist: it can report "https_enabled: false" forever even on a
+    # correctly-configured TLS deployment, training the admin to ignore it.
+    https_enabled = os.getenv('CLINIC_TLS') == '1' and bool(os.getenv('CLINIC_TLS_CERT_FILE'))
+    production_mode = os.getenv('CLINIC_ENV') == 'production'
+    encryption_key_externally_managed = bool(os.getenv('CLINIC_ENCRYPTION_KEY') or os.getenv('CLINIC_ENCRYPTION_KEY_COMMAND'))
     checklist = SetupChecklist(
         default_passwords_active=still_default,
         clinic_name_is_default=org.name.strip().lower() == 'demo clinic',
         user_count=len(users),
-        https_enabled=bool(os.getenv('CLINIC_SSL_CERTFILE')),
-        production_mode=os.getenv('CLINIC_ENV') == 'production',
+        https_enabled=https_enabled,
+        production_mode=production_mode,
+        encryption_key_externally_managed=encryption_key_externally_managed,
     )
-    checklist.all_clear = not checklist.default_passwords_active and not checklist.clinic_name_is_default
+    # all_clear now means "this looks like a real production deployment",
+    # not just "someone renamed the org and changed the passwords" -- a
+    # clinic could previously see a green checkmark while still running
+    # over plain HTTP with a demo-mode auto-generated key. Those are the
+    # two flags that actually matter for a real deployment; CLINIC_ENV is
+    # necessarily 'production' before crypto.py will even allow the app to
+    # start without an explicit key (see crypto.py), so this check is
+    # mostly a legibility signal for the admin, not the primary guard.
+    checklist.all_clear = (
+        not checklist.default_passwords_active
+        and not checklist.clinic_name_is_default
+        and checklist.https_enabled
+        and checklist.production_mode
+        and checklist.encryption_key_externally_managed
+    )
     return checklist
 
 

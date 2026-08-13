@@ -255,3 +255,7 @@ body.dark .lab-trend-panel h4{color:#56c2a4}
 .safety-source{display:block;margin-top:6px;font-style:italic;color:#8ca39f;font-size:10.5px}
 .safety-finding.organ-function{border-left:3px solid #3949a6;padding-left:11px}
 body.dark .safety-source{color:#5a7a77}
+
+/* === v1.21.0: šira AI citiranja (diferencijalna analiza) === */
+.evidence-citations{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.evidence-citation-btn{font-size:11px;padding:6px 10px;white-space:nowrap}

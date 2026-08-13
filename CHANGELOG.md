@@ -1,5 +1,96 @@
 # Changelog
 
+## 1.21.0
+
+Nastavak spoljnog bezbednosnog pregleda: zaključane zavisnosti bez poznatih
+ranjivosti, ATC kodovi za lekove, šira AI citiranja (diferencijalna
+analiza), i Playwright E2E test infrastruktura.
+
+### Fixed
+- **`requirements.lock` je regenerisan sa zakrpljenim verzijama** —
+  `pip-audit` je otkrio stvarne poznate ranjivosti u prethodno zaključanim
+  `cryptography` 43.0.3 i `pypdf` 5.9.0. Ažurirano na `pypdf>=6.15,<7` i
+  `cryptography>=48.0.1,<51`; puna test svita prolazi bez izmena koda
+  uprkos velikom skoku verzija. `pip-audit` sada javlja nula poznatih
+  ranjivosti.
+- **CI sada proverava i hash-locked instalaciju i bezbednost zavisnosti**
+  na svaki push: novi `hash-locked-install` job instalira striktno iz
+  `requirements.lock` (`pip install --require-hashes`), novi
+  `dependency-security-scan` job pokreće `pip-audit` protiv istog fajla.
+- Ispravljen tihi bug u prijavi sa MFA: `$("#loginForm button[type=submit]")`
+  nije pogađao dugme (nema eksplicitan `type` atribut), pa je promena
+  teksta dugmeta na „Potvrdi kod" tiho padala unutar catch bloka —
+  otkriveno pisanjem E2E testova.
+
+### Added
+- **ATC kodovi lekova** (`standards.py`) za svih 19 supstanci koje
+  provera bezbednosti terapije prepoznaje — isti pošten „mali tačan seed
+  skup" princip kao LOINC/MKB-10. Novi endpoint `/api/atc-codes` i
+  referentni panel u tabu Terapija.
+- **Diferencijalna analiza sada citira izvorni dokument** za svaki dokaz
+  koji potiče iz uploadovanog fajla — dugme „📄 [naziv fajla]" otvara
+  tačan dokument umesto da lekar mora ručno da pretražuje. Namerno bez
+  broja strane (za razliku od laboratorijskih nalaza) — diferencijalna
+  analiza ne prati stranicu u trenutku analize, pa bi tvrđenje broja
+  strane bilo izmišljena preciznost.
+- **Playwright E2E test infrastruktura** (`e2e/`, `playwright.config.js`,
+  novi `e2e` CI job): 6 testova koji pokreću pravi Chromium protiv prave
+  aplikacije — prijava (uspešna/neuspešna/opstanak sesije nakon
+  osvežavanja), pun MFA životni ciklus (podešavanje → prijava sa kodom →
+  isključivanje, sa pravim TOTP kodovima preko `otplib`), upload
+  dokumenta, otvaranje originala, i arhiviranje (uključujući otkazivanje).
+  **Napomena**: ovi testovi su napisani i unakrsno provereni sa stvarnim
+  HTML/JS, ali nisu mogli biti izvršeni u okruženju u kom su napisani —
+  nema izlaznog pristupa ka `cdn.playwright.dev` odakle se preuzima
+  Chromium binarni fajl (potvrđeno pokušajem). Očekuje se da rade u
+  CI-ju sa punim internet pristupom, ali prvo pokretanje treba pažljivo
+  pratiti.
+
+150/150 backend testova prolazi.
+
+
+## 1.20.0
+
+Bezbednosna runda po spoljnom pregledu koda: sesija u HttpOnly kolačiću
+umesto localStorage tokena, ispravka onboarding checklist-e koja je
+proveravala nepostojeću promenljivu, i sigurniji upload koji ne čita ceo
+fajl u memoriju pre provere veličine.
+
+### Fixed
+- **Token sesije više se ne čuva u `localStorage`** — glavna bezbednosna
+  ranjivost iz pregleda: token dostupan JavaScript-u je ukradiv kroz bilo
+  koji XSS propust. Sesija sada živi u `HttpOnly`, `SameSite=Strict`
+  kolačiću koji JavaScript ne može da pročita, uz poseban CSRF kolačić
+  (double-submit obrazac) koji frontend echo-uje kao `X-CSRF-Token`
+  zaglavlje na svaki izmenjujući zahtev. Bearer token ostaje dostupan kao
+  sekundaran put isključivo za API skripte/integracije (test svita ga i
+  dalje koristi) — CSRF provera se ne primenjuje na taj put jer je Bearer
+  autentifikacija sama po sebi imuna na CSRF. Ista izmena sprovedena i za
+  osoblje (`clinic_session`) i za pacijentski portal (`portal_session`,
+  potpuno odvojen kolačić i CSRF tok).
+- **Onboarding checklist je proveravala pogrešnu promenljivu**
+  (`CLINIC_SSL_CERTFILE`, koju ništa u sistemu ne čita) umesto stvarnih
+  `CLINIC_TLS`/`CLINIC_TLS_CERT_FILE`. `all_clear` je sada stroža: pored
+  demo lozinki i naziva ordinacije, zahteva i potvrđen HTTPS, produkcioni
+  režim (`CLINIC_ENV=production`) i eksterno upravljan ključ enkripcije —
+  ranije je mogla da prikaže „sve u redu“ na instalaciji koja radi preko
+  običnog HTTP-a sa automatski generisanim ključem.
+- **Upload dokumenta više ne učitava ceo fajl u memoriju pre provere
+  veličine** — čita se u ograničenim delovima (1 MiB) uz odbijanje čim se
+  pređe limit od 15 MB, umesto da se prvo sve učita pa tek onda proveri.
+  Zatvara stvarni memory-exhaustion vektor za veliki/zlonameran upload.
+  (Antivirusni sken uploada ostaje otvoren zadatak — zahteva pravi AV
+  mehanizam poput ClamAV koji ovo okruženje ne obezbeđuje.)
+
+### Novi testovi
+- 2 nova testa za checklist (ispravna TLS promenljiva, stroži `all_clear`).
+- 1 novi test za streaming upload sa ograničenjem.
+- Postojeća test svita i dalje radi kroz Bearer token, bez izmena — potvrđuje
+  da API-klijentski put nije narušen migracijom na kolačiće.
+
+145/145 testova prolazi.
+
+
 ## 1.19.0
 
 Poslednja dva stavke sa originalne liste prioriteta: verzionisana baza

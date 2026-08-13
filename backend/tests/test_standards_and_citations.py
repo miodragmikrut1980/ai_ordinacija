@@ -44,6 +44,16 @@ def test_icd10_codes_endpoint_returns_seed_codes():
     assert body['Pneumonija — potrebno razmotriti/isključiti'] == 'J18.9'
 
 
+def test_atc_codes_endpoint_returns_seed_codes():
+    h = login()
+    r = client.get('/api/atc-codes', headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body['metformin'] == 'A10BA02'
+    assert body['warfarin'] == 'B01AA03'
+    assert body['amoxicillin'] == 'J01CA04'
+
+
 def test_differential_candidate_carries_matching_icd10_code():
     h = login()
     p = client.post('/api/patients', headers=h, json={'full_name': 'MKB Test Pacijent'}).json()
@@ -55,6 +65,24 @@ def test_differential_candidate_carries_matching_icd10_code():
     assert analysis.status_code == 200, analysis.text
     uti = next(c for c in analysis.json()['candidates'] if c['name'] == 'Infekcija urinarnog trakta')
     assert uti['icd10_code'] == 'N39.0'
+
+
+def test_differential_evidence_citation_traces_back_to_uploaded_document_via_api():
+    h = login()
+    p = client.post('/api/patients', headers=h, json={'full_name': 'Citat Diferencijala Pacijent'}).json()
+    up = client.post(f"/api/patients/{p['id']}/documents", headers=h,
+                      files={'file': ('nalaz-urina.txt', 'Dizurija i pečenje pri mokrenju, učestalo mokrenje.'.encode('utf-8'), 'text/plain')})
+    assert up.status_code == 200, up.text
+    analysis = client.post(f"/api/patients/{p['id']}/differential-analyses", headers=h)
+    assert analysis.status_code == 200, analysis.text
+    uti = next(c for c in analysis.json()['candidates'] if c['name'] == 'Infekcija urinarnog trakta')
+    assert uti['evidence_citations']
+    citation = uti['evidence_citations'][0]
+    assert citation['document_id'] == up.json()['id']
+    assert citation['filename'] == 'nalaz-urina.txt'
+    # the citation must resolve to a real, fetchable original document
+    original = client.get(f"/api/patients/{p['id']}/documents/{citation['document_id']}/original", headers=h)
+    assert original.status_code == 200
 
 
 def test_document_viewer_citation_source_page_survives_through_lab_results_api():

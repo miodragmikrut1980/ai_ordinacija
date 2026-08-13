@@ -418,6 +418,20 @@ def test_decompression_bomb_docx_upload_is_rejected_via_the_real_endpoint():
     # the server must still be alive and functional right after
     assert client.get('/api/health').status_code==200
 
+def test_oversized_upload_is_rejected_during_streaming_not_after_full_buffering():
+    # Regression guard: the endpoint used to buffer the entire upload into
+    # memory via a single `await file.read()` and only checked the size
+    # afterwards -- an unbounded memory-exhaustion vector regardless of the
+    # nominal 15 MB limit. This confirms an oversized upload is still
+    # rejected (413) under the new chunked-read implementation, and that
+    # the server survives it -- functionally the same guarantee as before,
+    # now backed by bounded peak memory during the read itself.
+    h=login();p=client.post('/api/patients',headers=h,json={'full_name':'Oversized Streaming Test'}).json()
+    oversized=b'A'*(16*1024*1024)  # 16 MB, over the 15 MB cap
+    r=client.post(f"/api/patients/{p['id']}/documents",headers=h,files={'file':('big.txt',oversized,'text/plain')})
+    assert r.status_code==413,r.text
+    assert client.get('/api/health').status_code==200
+
 def test_medical_report_pdf_handles_ordinary_clinical_shorthand_containing_angle_brackets():
     # Regression guard: chief_complaint/org name were not escaped before
     # being passed to reportlab's Paragraph (which interprets a small
@@ -577,6 +591,51 @@ def test_setup_checklist_detects_demo_passwords_and_default_name():
     assert body['clinic_name_is_default'] is True
     assert body['all_clear'] is False
     assert client.get('/api/setup/checklist',headers=login()).status_code==403
+
+def test_setup_checklist_reads_the_real_tls_env_vars_not_a_nonexistent_one():
+    # Regression guard: an earlier version checked CLINIC_SSL_CERTFILE,
+    # a variable nothing else in this codebase ever reads or sets (the
+    # real ones are CLINIC_TLS / CLINIC_TLS_CERT_FILE, see start.sh) --
+    # meaning https_enabled could never become true even on a correctly
+    # TLS-configured deployment, silently training the admin to ignore
+    # the checklist. Confirms the checklist now reads the real variables.
+    import os
+    admin=login('admin','admin123')
+    assert client.get('/api/setup/checklist',headers=admin).json()['https_enabled'] is False
+    old_tls,old_cert=os.environ.get('CLINIC_TLS'),os.environ.get('CLINIC_TLS_CERT_FILE')
+    try:
+        os.environ['CLINIC_TLS']='1'
+        os.environ['CLINIC_TLS_CERT_FILE']='/tmp/does-not-need-to-exist-for-this-check.pem'
+        assert client.get('/api/setup/checklist',headers=admin).json()['https_enabled'] is True
+    finally:
+        for k,v in (('CLINIC_TLS',old_tls),('CLINIC_TLS_CERT_FILE',old_cert)):
+            if v is None: os.environ.pop(k,None)
+            else: os.environ[k]=v
+
+def test_setup_checklist_all_clear_requires_production_https_and_managed_key():
+    # Regression guard: all_clear previously only checked demo passwords
+    # and the clinic name, so a clinic could see a green checkmark while
+    # still running plain HTTP with an auto-generated key -- a false sense
+    # of security for a system holding health data. All five conditions
+    # must now hold.
+    import os
+    admin=login('admin','admin123')
+    client.patch('/api/organization',headers=admin,json={'name':'Not Demo Clinic Anymore'})
+    saved={k:os.environ.get(k) for k in ('CLINIC_TLS','CLINIC_TLS_CERT_FILE','CLINIC_ENV','CLINIC_ENCRYPTION_KEY')}
+    try:
+        os.environ['CLINIC_TLS']='1'
+        os.environ['CLINIC_TLS_CERT_FILE']='/tmp/does-not-need-to-exist-for-this-check.pem'
+        os.environ['CLINIC_ENV']='production'
+        os.environ['CLINIC_ENCRYPTION_KEY']='irrelevant-value-for-this-check'
+        body=client.get('/api/setup/checklist',headers=admin).json()
+        assert body['https_enabled'] and body['production_mode'] and body['encryption_key_externally_managed']
+        assert body['clinic_name_is_default'] is False
+        # demo passwords are still active in this test org -> still not all_clear
+        assert body['all_clear'] is False
+    finally:
+        for k,v in saved.items():
+            if v is None: os.environ.pop(k,None)
+            else: os.environ[k]=v
 
 def test_organization_rename_clears_default_name_flag_and_is_audited():
     admin=login('admin','admin123')

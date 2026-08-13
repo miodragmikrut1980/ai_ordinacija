@@ -2,15 +2,36 @@ from __future__ import annotations
 
 from fastapi import Depends, Header, HTTPException, Request
 
+from .csrf import enforce_csrf_for_cookie_auth
 from .state import PORTAL_SESSION_MINUTES, SESSION_MINUTES, store
 
+SESSION_COOKIE_NAME = 'clinic_session'
+PORTAL_SESSION_COOKIE_NAME = 'portal_session'
 
 _PASSWORD_CHANGE_ONLY = {'/api/auth/me', '/api/auth/change-password', '/api/auth/logout'}
 
+
+def extract_session_token(request: Request, authorization: str | None, cookie_name: str) -> tuple[str | None, bool]:
+    """Returns (token, via_cookie). An explicit Authorization header takes
+    priority over a cookie when both are present -- a client that went out
+    of its way to set that header (an API script, or a test switching
+    between users on a shared HTTP client whose cookie jar still holds an
+    older login) means it deliberately, not accidentally. via_cookie tells
+    the caller whether CSRF validation applies -- Bearer-token requests are
+    CSRF-immune by construction (see csrf.py), cookie-authenticated ones
+    are not."""
+    if authorization and authorization.startswith('Bearer '):
+        return authorization.split(' ', 1)[1], False
+    cookie_token = request.cookies.get(cookie_name)
+    if cookie_token:
+        return cookie_token, True
+    return None, False
+
+
 def current_user(request: Request, authorization: str | None = Header(default=None)):
-    if not authorization or not authorization.startswith('Bearer '):
+    token, via_cookie = extract_session_token(request, authorization, SESSION_COOKIE_NAME)
+    if not token:
         raise HTTPException(401, 'Authentication required')
-    token = authorization.split(' ', 1)[1]
     session = store.get_session(token)
     if not session:
         raise HTTPException(401, 'Invalid or expired session')
@@ -20,6 +41,8 @@ def current_user(request: Request, authorization: str | None = Header(default=No
         raise HTTPException(401, 'Invalid or expired session')
     if user.must_change_password and request.url.path not in _PASSWORD_CHANGE_ONLY:
         raise HTTPException(403, 'Password change required before accessing clinic data')
+    if via_cookie:
+        enforce_csrf_for_cookie_auth(request)
     store.touch_session(token, SESSION_MINUTES)
     return user
 
@@ -48,10 +71,11 @@ def current_portal_account(request: Request, authorization: str | None = Header(
     staff token for a portal endpoint or a portal token for a staff
     endpoint -- see models.py's note on the patient-portal section for why
     that separation is a hard security requirement here, not a style
-    preference."""
-    if not authorization or not authorization.startswith('Bearer '):
+    preference. Same cookie-or-Bearer-token pattern as current_user, and
+    the same CSRF rule: only cookie-authenticated requests are checked."""
+    token, via_cookie = extract_session_token(request, authorization, PORTAL_SESSION_COOKIE_NAME)
+    if not token:
         raise HTTPException(401, 'Authentication required')
-    token = authorization.split(' ', 1)[1]
     session = store.get_portal_session(token)
     if not session:
         raise HTTPException(401, 'Invalid or expired session')
@@ -61,5 +85,7 @@ def current_portal_account(request: Request, authorization: str | None = Header(
         raise HTTPException(401, 'Invalid or expired session')
     if account.must_change_password and request.url.path not in _PORTAL_PASSWORD_CHANGE_ONLY:
         raise HTTPException(403, 'Password change required before using the portal')
+    if via_cookie:
+        enforce_csrf_for_cookie_auth(request)
     store.touch_portal_session(token, PORTAL_SESSION_MINUTES)
     return account

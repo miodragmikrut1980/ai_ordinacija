@@ -23,9 +23,9 @@ def _patient(**profile_kwargs) -> PatientRecord:
     )
 
 
-def _document(text: str, filename: str = "doc.txt") -> DocumentRecord:
+def _document(text: str, filename: str = "doc.txt", id: str = "d1") -> DocumentRecord:
     return DocumentRecord(
-        id="d1", organization_id="org1", patient_id="p1", filename=filename, media_type="text/plain",
+        id=id, organization_id="org1", patient_id="p1", filename=filename, media_type="text/plain",
         uploaded_at=datetime.now(timezone.utc), text=text,
     )
 
@@ -124,3 +124,42 @@ def test_urinary_tract_infection_rule_matches_and_respects_negation():
     result2 = build_differential(patient2, [doc2], [], EMPTY_RADAR)
     names2 = [c["name"] for c in result2["candidates"]]
     assert "Infekcija urinarnog trakta" not in names2
+
+
+def test_supporting_evidence_is_cited_to_the_source_document():
+    # v1.21.0 document-viewer citation extended to differential analysis:
+    # each supporting_evidence label that came from an uploaded document
+    # (not just patient-profile text) must trace back to that document's
+    # id/filename so the frontend can offer a direct link, instead of
+    # leaving the doctor to search through every uploaded file.
+    patient = _patient()
+    doc = _document("Pacijent ima dizuriju i pečenje pri mokrenju.", filename="nalaz-urina.txt", id="doc-uti")
+    result = build_differential(patient, [doc], [], EMPTY_RADAR)
+    uti = next(c for c in result["candidates"] if c["name"] == "Infekcija urinarnog trakta")
+    assert uti["evidence_citations"], "expected at least one citation for document-sourced evidence"
+    citation = uti["evidence_citations"][0]
+    assert citation["document_id"] == "doc-uti"
+    assert citation["filename"] == "nalaz-urina.txt"
+    assert citation["label"] in uti["supporting_evidence"]
+
+
+def test_evidence_from_patient_profile_alone_has_no_document_citation():
+    # Evidence found only in the patient's own profile (diagnoses/history),
+    # never in any uploaded document, correctly has nothing to cite --
+    # there's no document to link to, and this must not be faked.
+    patient = _patient(diagnoses=["Renalna insuficijencija"])
+    result = build_differential(patient, [], [_encounter(chief_complaint="Dizurija", anamnesis="Dizurija i pečenje pri mokrenju, učestalo mokrenje.", clinician_id="u1", clinician_name="Dr Test", created_at=datetime.now(timezone.utc))], EMPTY_RADAR)
+    uti = next((c for c in result["candidates"] if c["name"] == "Infekcija urinarnog trakta"), None)
+    assert uti is not None
+    assert uti["evidence_citations"] == []
+
+
+def test_citation_prefers_first_matching_document_when_multiple_uploaded():
+    patient = _patient()
+    unrelated = _document("Nalaz krvne slike, bez pomena urinarnih simptoma.", filename="krvna-slika.txt", id="doc-unrelated")
+    relevant = _document("Dizurija i učestalo mokrenje potvrđeni.", filename="urin-nalaz.txt", id="doc-relevant")
+    result = build_differential(patient, [unrelated, relevant], [], EMPTY_RADAR)
+    uti = next(c for c in result["candidates"] if c["name"] == "Infekcija urinarnog trakta")
+    cited_ids = {c["document_id"] for c in uti["evidence_citations"]}
+    assert "doc-relevant" in cited_ids
+    assert "doc-unrelated" not in cited_ids

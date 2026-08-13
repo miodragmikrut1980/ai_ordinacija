@@ -71,18 +71,31 @@ def _combined(patient, documents, encounters) -> str:
     parts += [f'{d.filename} {d.text}' for d in documents]
     return '\n'.join(parts).lower()
 
+def _evidence_source_document(label: str, terms: tuple, documents) -> dict | None:
+    """Finds the first uploaded document whose text contains an unnegated
+    match for this evidence label's terms -- see EvidenceCitation's
+    docstring for what this does and doesn't guarantee (document-level,
+    not page-level)."""
+    for d in documents:
+        if any_unnegated(f'{d.filename} {d.text}'.lower(), terms):
+            return {'label': label, 'document_id': d.id, 'filename': d.filename}
+    return None
+
 def build_differential(patient, documents, encounters, radar: dict) -> dict:
     text=_combined(patient,documents,encounters)
     candidates=[]
     for rule in RULES:
-        evidence=[]; score=0
+        evidence=[]; score=0; citations=[]
         for label,terms,weight in rule.positive:
             if any_unnegated(text, terms):
                 evidence.append(label);score+=weight
+                source = _evidence_source_document(label, terms, documents)
+                if source:
+                    citations.append(source)
         if score < 18: continue
         score=min(score,95)
         level='visoko' if score>=70 else 'srednje' if score>=45 else 'niže'
-        candidates.append({'id':str(uuid4()),'name':rule.name,'category':rule.category,'match_score':score,'match_level':level,'supporting_evidence':evidence,'contradicting_evidence':[],'missing_information':list(rule.missing),'red_flag':rule.red_flag,'icd10_code':ICD10_CODES.get(rule.name)})
+        candidates.append({'id':str(uuid4()),'name':rule.name,'category':rule.category,'match_score':score,'match_level':level,'supporting_evidence':evidence,'contradicting_evidence':[],'missing_information':list(rule.missing),'red_flag':rule.red_flag,'icd10_code':ICD10_CODES.get(rule.name),'evidence_citations':citations})
     candidates.sort(key=lambda x:(not x['red_flag'],-x['match_score']))
     epi=[]
     for trend in radar.get('syndrome_trends',[]):

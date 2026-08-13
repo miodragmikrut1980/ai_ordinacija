@@ -162,6 +162,7 @@ def rule_catalog() -> dict:
     """Full, auditable list of every rule this module can trigger -- what
     'verziona baza' honestly means here: not a licensed external database,
     but a small versioned ruleset an admin/pharmacist can review in full."""
+    from .standards import ATC_CODES
     return {
         "module_version": MODULE_VERSION,
         "interaction_rules": [
@@ -172,5 +173,7 @@ def rule_catalog() -> dict:
             {"rule_id": r[0], "added_version": r[1], "severity": r[2], "organ": r[3], "medication": r[4], "message": r[5]}
             for r in ORGAN_FUNCTION_RULES
         ],
-        "recognized_medications": sorted(ALIASES.keys()),
+        "recognized_medications": [
+            {"name": name, "atc_code": ATC_CODES.get(name)} for name in sorted(ALIASES.keys())
+        ],
     }

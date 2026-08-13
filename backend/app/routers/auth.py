@@ -1,16 +1,35 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
-from ..deps import current_user, require_roles
+from ..csrf import CSRF_COOKIE_NAME, new_csrf_token
+from ..deps import SESSION_COOKIE_NAME, extract_session_token, current_user, require_roles
 from ..models import LoginRequest, MfaAdminReset, MfaCode, MfaLoginComplete, MfaSetupResponse, PasswordChange, UserCreate, UserStatusUpdate
 from ..state import SESSION_MINUTES, store
 
 router = APIRouter()
 
 
+def _set_session_cookies(response: Response, request: Request, token: str) -> None:
+    """Sets the HttpOnly session cookie plus its paired (readable) CSRF
+    cookie -- see csrf.py for why the second cookie exists. `secure` is
+    conditional on the request actually having arrived over HTTPS (same
+    check main.py's HSTS header uses) so login still works for a
+    plain-HTTP local/LAN deployment; a real internet-facing deployment is
+    expected to run behind TLS (see start.sh CLINIC_TLS), at which point
+    this cookie starts being marked Secure automatically."""
+    secure = request.url.scheme == 'https'
+    response.set_cookie(SESSION_COOKIE_NAME, token, httponly=True, secure=secure, samesite='strict', max_age=SESSION_MINUTES * 60, path='/')
+    response.set_cookie(CSRF_COOKIE_NAME, new_csrf_token(), httponly=False, secure=secure, samesite='strict', max_age=SESSION_MINUTES * 60, path='/')
+
+
+def _clear_session_cookies(response: Response) -> None:
+    response.delete_cookie(SESSION_COOKIE_NAME, path='/')
+    response.delete_cookie(CSRF_COOKIE_NAME, path='/')
+
+
 @router.post('/api/auth/login')
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request, response: Response):
     locked, retry_after = store.is_locked_out(payload.organization, payload.username)
     if locked:
         raise HTTPException(429, f'Too many failed login attempts. Try again in {retry_after} seconds.', headers={'Retry-After': str(retry_after)})
@@ -24,16 +43,25 @@ def login(payload: LoginRequest):
         return {'mfa_required': True, 'mfa_challenge': challenge}
     token, _ = store.create_session(user.id, SESSION_MINUTES)
     store.audit(user, 'login', 'session')
+    _set_session_cookies(response, request, token)
+    # `token` stays in the body for Bearer-token clients (scripts, API
+    # integrations, and this project's own test suite) -- see deps.py's
+    # extract_session_token: an explicit Authorization header still works
+    # exactly as before. The browser-facing frontend (app.js) does NOT
+    # read or store this value anymore; it relies solely on the HttpOnly
+    # cookie set above, which is the actual fix for the localStorage/XSS
+    # token-theft gap this migration addresses.
     return {'token': token, 'expires_in_minutes': SESSION_MINUTES, 'user': store.public_user(user)}
 
 
 @router.post('/api/auth/mfa/complete-login')
-def complete_mfa_login(payload: MfaLoginComplete):
+def complete_mfa_login(payload: MfaLoginComplete, request: Request, response: Response):
     user = store.complete_mfa_login_challenge(payload.challenge, payload.code)
     if not user or not user.active:
         raise HTTPException(401, 'Invalid or expired verification code')
     token, _ = store.create_session(user.id, SESSION_MINUTES)
     store.audit(user, 'login_mfa', 'session')
+    _set_session_cookies(response, request, token)
     return {'token': token, 'expires_in_minutes': SESSION_MINUTES, 'user': store.public_user(user)}
 
 
@@ -43,13 +71,15 @@ def me(user=Depends(current_user)):
 
 
 @router.post('/api/auth/logout', status_code=204)
-def logout(authorization: str | None = Header(default=None), user=Depends(current_user)):
-    store.delete_session(authorization.split(' ', 1)[1])
+def logout(request: Request, response: Response, authorization: str | None = Header(default=None), user=Depends(current_user)):
+    token, _ = extract_session_token(request, authorization, SESSION_COOKIE_NAME)
+    store.delete_session(token)
     store.audit(user, 'logout', 'session')
+    _clear_session_cookies(response)
 
 
 @router.post('/api/auth/change-password', status_code=204)
-def change_password(payload: PasswordChange, user=Depends(current_user)):
+def change_password(payload: PasswordChange, user=Depends(current_user), response: Response = None):
     if payload.current_password == payload.new_password:
         raise HTTPException(422, 'New password must be different')
     if not store.change_password(user, payload.current_password, payload.new_password):
@@ -60,6 +90,8 @@ def change_password(payload: PasswordChange, user=Depends(current_user)):
     # this user, including the one used to make this request, is revoked.
     # The client is expected to log in again with the new password.
     store.delete_sessions_for_user(user.id)
+    if response is not None:
+        _clear_session_cookies(response)
 
 
 @router.post('/api/auth/mfa/setup', response_model=MfaSetupResponse)

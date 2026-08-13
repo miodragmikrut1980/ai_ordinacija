@@ -1,0 +1,13 @@
+{
+  "name": "clinic-ai-assistant-e2e",
+  "private": true,
+  "description": "Playwright E2E tests -- see e2e/README.md. Not the application itself (that has no build step, see web/static).",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "otplib": "^12.0.1"
+  }
+}

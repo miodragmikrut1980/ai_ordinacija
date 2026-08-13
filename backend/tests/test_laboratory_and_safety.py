@@ -96,7 +96,9 @@ def test_rule_catalog_lists_every_rule_with_version():
     assert catalog["module_version"] == "2026.08"
     ids = {r["rule_id"] for r in catalog["interaction_rules"]} | {r["rule_id"] for r in catalog["organ_function_rules"]}
     assert "INT-001" in ids and "REN-003" in ids and "HEP-002" in ids
-    assert "metformin" in catalog["recognized_medications"]
+    assert any(m["name"] == "metformin" for m in catalog["recognized_medications"])
+    metformin = next(m for m in catalog["recognized_medications"] if m["name"] == "metformin")
+    assert metformin["atc_code"] == "A10BA02"
 
 
 def test_organ_function_cues_match_across_serbian_grammatical_cases():

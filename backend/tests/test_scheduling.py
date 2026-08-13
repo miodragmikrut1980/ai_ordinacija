@@ -21,7 +21,13 @@ def _patient(h, name='Kalendar Pacijent'):
 def _clinician_id(h):
     cs = client.get('/api/clinicians', headers=h).json()
     assert cs, 'expected at least the seeded demo doctor'
-    return cs[0]['id']
+    # Pick the always-present seeded doctor by name, not cs[0]: other tests
+    # in this file create additional doctor users in the same shared demo
+    # org, and index 0 isn't guaranteed to be the original seed doctor once
+    # those exist -- that made this helper (and every test using it) flaky
+    # depending on execution order.
+    seeded = next((c for c in cs if c['full_name'] == 'Dr. Demo'), None)
+    return seeded['id'] if seeded else cs[0]['id']
 
 
 def test_clinicians_endpoint_lists_doctors_only_and_hides_password_hash():

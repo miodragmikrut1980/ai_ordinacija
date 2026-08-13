@@ -335,6 +335,19 @@ class ScribeStatusUpdate(BaseModel):
     visit_date: datetime | None = None
 
 
+class EvidenceCitation(BaseModel):
+    """Traces one piece of supporting_evidence back to the specific
+    uploaded document it was found in -- not just 'somewhere in this
+    patient's record'. Page-level precision (like the lab-result citation
+    feature) isn't offered here: differential evidence is matched against
+    each document's already-extracted flat text, not tracked per-page at
+    analysis time, so claiming a page number here would be fabricated
+    precision this module doesn't actually have. Clicking through still
+    opens the right document, which is the meaningful trust improvement."""
+    label: str
+    document_id: str
+    filename: str
+
 class DifferentialCandidate(BaseModel):
     id: str
     name: str
@@ -350,6 +363,7 @@ class DifferentialCandidate(BaseModel):
     reviewed_by: str | None = None
     doctor_note: str | None = None
     icd10_code: str | None = None
+    evidence_citations: list[EvidenceCitation] = Field(default_factory=list)
 
 class DifferentialAnalysis(BaseModel):
     id: str

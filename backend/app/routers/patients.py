@@ -10,7 +10,7 @@ from ..extractors import UnsupportedDocumentError, extract_text_with_method
 from ..epidemiology import build_radar
 from ..laboratory import extract_lab_candidates
 from ..medication_safety import check_medication_safety, rule_catalog
-from ..standards import ICD10_CODES, LAB_STANDARDS
+from ..standards import ATC_CODES, ICD10_CODES, LAB_STANDARDS
 from ..models import (
     ChatRequest, ClinicalProfileUpdate,
     DashboardOverview, DocumentArchiveRequest, EncounterCreate, LabResultCreate, LabResultStatusUpdate,
@@ -20,6 +20,43 @@ from ..models import (
 from ..state import ai, store
 
 router = APIRouter()
+
+UPLOAD_MAX_BYTES = 15 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MiB
+
+
+async def _read_upload_capped(file: UploadFile, max_bytes: int) -> bytes:
+    """Reads the upload in bounded chunks, rejecting it as soon as the cap
+    is exceeded -- NOT after buffering the whole thing into memory first.
+    The previous `await file.read()` read an arbitrarily large upload
+    fully into memory before the size was ever checked, so a large or
+    malicious upload could exhaust memory regardless of the 15 MB limit
+    the code claimed to enforce. Peak memory here is bounded to roughly
+    max_bytes + one chunk.
+
+    This still holds the (capped) file fully in memory afterwards, since
+    extract_text_with_method() and the rest of the pipeline operate on an
+    in-memory bytes object -- a true disk-streaming pipeline would need
+    that extraction layer reworked too, which is a larger change than this
+    fix. What this closes is the specific gap: an upload can no longer
+    consume unbounded memory before the size limit is ever applied.
+
+    Malware/antivirus scanning of uploads is a separate, still-open gap:
+    doing that safely needs a real AV engine (e.g. ClamAV) integrated at
+    deployment time, which this environment doesn't provide and can't
+    responsibly fake.
+    """
+    total = 0
+    chunks: list[bytes] = []
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(413, f'Maximum file size is {max_bytes // (1024 * 1024)} MB')
+        chunks.append(chunk)
+    return b''.join(chunks)
 
 
 @router.get('/api/lab-standards')
@@ -35,6 +72,14 @@ def icd10_codes(user=Depends(current_user)):
     """Seed ICD-10/MKB-10 codes for the conditions differential.py already
     recognizes. See standards.py for scope notes."""
     return ICD10_CODES
+
+
+@router.get('/api/atc-codes')
+def atc_codes(user=Depends(current_user)):
+    """Seed WHO ATC codes for the medications medication_safety.py already
+    recognizes. See standards.py for scope notes -- same 'small, correct,
+    extensible seed set' principle as LOINC/ICD-10 above."""
+    return ATC_CODES
 
 
 @router.post('/api/patients')
@@ -102,11 +147,9 @@ def dashboard_red_flags(user=Depends(require_roles('doctor', 'admin'))):
 @router.post('/api/patients/{patient_id}/documents')
 async def upload(patient_id: str, file: UploadFile = File(...), user=Depends(require_roles('doctor', 'admin'))):
     patient_or_404(user, patient_id)
-    raw = await file.read()
+    raw = await _read_upload_capped(file, UPLOAD_MAX_BYTES)
     if not raw:
         raise HTTPException(422, 'The uploaded file is empty')
-    if len(raw) > 15 * 1024 * 1024:
-        raise HTTPException(413, 'Maximum file size is 15 MB')
     try:
         text, extraction_method, page_offsets = extract_text_with_method(file.filename or 'document', raw)
     except UnsupportedDocumentError as e:

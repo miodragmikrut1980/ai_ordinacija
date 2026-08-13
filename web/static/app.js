@@ -3,9 +3,21 @@ const $ = (s) => document.querySelector(s),
 let patients = [],
   activePatient = null,
   reportContent = "",
-  sessionToken = localStorage.getItem("clinic-token") || "",
   currentUser = null,
   mfaLoginChallenge = "";
+// Session identity now lives in an HttpOnly cookie the browser manages
+// automatically (set by the server on login) -- this app never reads,
+// stores, or sends a bearer token itself anymore. A token kept in
+// localStorage/JS-reachable state is stealable by any XSS on this page;
+// an HttpOnly cookie is not readable by JavaScript at all, which is the
+// actual fix. See backend/app/csrf.py for why mutating requests still
+// need the small csrf_token cookie echoed back in a header below.
+function getCookie(name) {
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${name}=([^;]*)`),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
 const esc = (v = "") =>
   String(v).replace(
     /[&<>'"]/g,
@@ -21,10 +33,13 @@ const toast = (m) => {
   setTimeout(() => e.classList.remove("show"), 2500);
 };
 const api = async (u, o = {}) => {
-  o.headers = {
-    ...(o.headers || {}),
-    ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-  };
+  o.credentials = "same-origin";
+  const method = (o.method || "GET").toUpperCase();
+  o.headers = { ...(o.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrf = getCookie("csrf_token");
+    if (csrf) o.headers["X-CSRF-Token"] = csrf;
+  }
   const r = await fetch(u, o);
   if (!r.ok) {
     let m = "Zahtev nije uspeo";
@@ -102,7 +117,6 @@ async function init() {
     h.ai_provider === "ollama"
       ? "Ollama je povezana"
       : "Lokalni bezbedni režim";
-  if (!sessionToken) return;
   try {
     currentUser = await api("/api/auth/me");
     applyUser();
@@ -116,8 +130,9 @@ async function init() {
     await loadDashboard();
     $("#loginOverlay").classList.add("hidden");
   } catch {
-    sessionToken = "";
-    localStorage.removeItem("clinic-token");
+    // No valid session cookie -- show the login screen. Nothing to clear
+    // client-side anymore; the session lives in an HttpOnly cookie the
+    // server manages, not in any JS-readable storage.
   }
 }
 function applyUser() {
@@ -916,6 +931,22 @@ function renderTherapyOverview(p) {
     item("Alergije", (p.allergies || []).join(", ")) +
     item("Trenutna terapija", (p.current_medications || []).join(", ")) +
     item("Dijagnoze", (p.diagnoses || []).join(", "));
+  loadAtcReference();
+}
+let atcReferenceLoaded = false;
+async function loadAtcReference() {
+  if (atcReferenceLoaded || !["doctor", "admin"].includes(currentUser.role)) return;
+  try {
+    const codes = await api("/api/atc-codes");
+    $("#atcReference").innerHTML = Object.entries(codes)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(
+        ([name, atc]) =>
+          `<div class="row"><div><strong>${esc(name)}</strong></div><span class="badge">ATC ${esc(atc)}</span></div>`,
+      )
+      .join("");
+    atcReferenceLoaded = true;
+  } catch {}
 }
 async function loadSummary() {
   $("#summary").textContent = "Analiza kartona…";
@@ -992,6 +1023,11 @@ $("#themeBtn").onclick = () => {
   );
 };
 $("#newPatientBtn").onclick = () => $("#patientDialog").showModal();
+document.addEventListener("click", async (e) => {
+  const citationBtn = e.target.closest(".evidence-citation-btn");
+  if (!citationBtn) return;
+  await openOriginalDocument(citationBtn.dataset.docId);
+});
 $$(".close").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 $("#addAppointmentBtn").onclick = () => $("#appointmentDialog").showModal();
 $$(".appointment-open").forEach(
@@ -1168,26 +1204,32 @@ $("#fileInput").onchange = async (e) => {
     e.target.value = "";
   }
 };
+async function openOriginalDocument(documentId) {
+  // Open synchronously from the click so ordinary popup blockers do not
+  // reject a legitimate clinical review window after the authenticated fetch.
+  const view = window.open("", "_blank");
+  if (!view) {
+    toast("Pregledač je blokirao otvaranje originalnog dokumenta");
+    return;
+  }
+  try {
+    const r = await fetch(`/api/patients/${activePatient.id}/documents/${documentId}/original`, {
+      credentials: "same-origin", cache: "no-store",
+    });
+    if (!r.ok) throw Error("Original dokument nije dostupan");
+    const url = URL.createObjectURL(await r.blob());
+    view.opener = null;
+    view.location.replace(url);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (x) {
+    view.close();
+    toast(x.message || "Original dokument nije dostupan");
+  }
+}
 $("#documents").onclick = async (e) => {
   const original = e.target.closest(".open-original");
   if (original) {
-    // Open synchronously from the click so ordinary popup blockers do not
-    // reject a legitimate clinical review window after the authenticated fetch.
-    const view = window.open("", "_blank");
-    if (!view) { toast("Pregledač je blokirao otvaranje originalnog dokumenta"); return; }
-    try {
-      const r = await fetch(`/api/patients/${activePatient.id}/documents/${original.dataset.id}/original`, {
-        headers: { Authorization: `Bearer ${sessionToken}` }, cache: "no-store",
-      });
-      if (!r.ok) throw Error("Original dokument nije dostupan");
-      const url = URL.createObjectURL(await r.blob());
-      view.opener = null;
-      view.location.replace(url);
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (x) {
-      view.close();
-      toast(x.message || "Original dokument nije dostupan");
-    }
+    await openOriginalDocument(original.dataset.id);
     return;
   }
   const archive = e.target.closest(".archive-doc");
@@ -1388,14 +1430,12 @@ $("#loginForm").onsubmit = async (e) => {
       mfaLoginChallenge = r.mfa_challenge;
       $("#mfaLoginField").classList.remove("hidden");
       $("#loginHint").textContent = "Unesite šestocifreni kod iz autentikator aplikacije. Kod važi kratko.";
-      $("#loginForm button[type=submit]").textContent = "Potvrdi kod";
+      $("#loginForm button").textContent = "Potvrdi kod";
       $("#loginForm [name=mfa_code]").required = true;
       $("#loginForm [name=mfa_code]").focus();
       return;
     }
-    sessionToken = r.token;
     currentUser = r.user;
-    localStorage.setItem("clinic-token", sessionToken);
     applyUser();
     $("#loginOverlay").classList.add("hidden");
     await loadPatients();
@@ -1410,9 +1450,7 @@ $("#logoutBtn").onclick = async () => {
   try {
     await api("/api/auth/logout", { method: "POST" });
   } catch {}
-  sessionToken = "";
   currentUser = null;
-  localStorage.removeItem("clinic-token");
   $("#loginOverlay").classList.remove("hidden");
 };
 const lines = (v) =>
@@ -1640,7 +1678,7 @@ $("#pdfReportBtn").onclick = async () => {
   try {
     const r = await fetch(
       `/api/patients/${activePatient.id}/medical-report.pdf`,
-      { headers: { Authorization: `Bearer ${sessionToken}` } },
+      { credentials: "same-origin" },
     );
     if (!r.ok)
       throw Error((await r.json()).detail || "Generisanje PDF-a nije uspelo");
@@ -1820,7 +1858,13 @@ function differentialCandidateHtml(x) {
         ? "Odbačeno od lekara"
         : "AI sugestija — čeka pregled";
   const categoryLabel = `${esc(x.category)}${x.icd10_code ? ` · MKB-10: ${esc(x.icd10_code)}` : ""}`;
-  return `<details class="differential-item ${x.red_flag ? "red-flag" : ""} ${status}" open><summary><div><strong>${esc(x.name)}</strong><span>${categoryLabel}</span></div><div class="match-score"><b>${x.match_score}/100</b><small>${esc(x.match_level)} podudaranje</small></div></summary><div class="match-bar"><i style="width:${x.match_score}%"></i></div><span class="candidate-state ${status}">${statusText}</span>${x.supporting_evidence.length ? `<p><b>Podržavaju:</b> ${esc(x.supporting_evidence.join("; "))}</p>` : ""}${x.contradicting_evidence.length ? `<p><b>Ne uklapa se:</b> ${esc(x.contradicting_evidence.join("; "))}</p>` : ""}${x.missing_information.length ? `<p><b>Potrebno proveriti:</b> ${esc(x.missing_information.join("; "))}</p>` : ""}${x.doctor_note ? `<p><b>Napomena lekara:</b> ${esc(x.doctor_note)}</p>` : ""}${x.red_flag ? '<span class="badge warn">Ne propustiti / razmotriti isključivanje</span>' : ""}${status === "pending" ? `<div class="candidate-review"><input class="doctor-note" data-candidate="${x.id}" placeholder="Opciona napomena lekara"><label><input type="checkbox" class="add-to-scribe" data-candidate="${x.id}"> Dodaj potvrđenu sugestiju u najnoviji AI nacrt pregleda</label><div><button class="button primary candidate-action" data-id="${x.id}" data-status="accepted">Potvrdi za razmatranje</button><button class="button secondary candidate-action" data-id="${x.id}" data-status="dismissed">Odbaci sugestiju</button></div></div>` : ""}${x.reviewed_by ? `<small>Pregledao: ${esc(x.reviewed_by)} · ${new Date(x.reviewed_at).toLocaleString("sr-Latn-RS")}</small>` : ""}</details>`;
+  const citations = (x.evidence_citations || [])
+    .map(
+      (c) =>
+        `<button type="button" class="button secondary evidence-citation-btn" data-doc-id="${c.document_id}" title="Otvori dokument gde je ovo pronađeno">📄 ${esc(c.filename)}</button>`,
+    )
+    .join("");
+  return `<details class="differential-item ${x.red_flag ? "red-flag" : ""} ${status}" open><summary><div><strong>${esc(x.name)}</strong><span>${categoryLabel}</span></div><div class="match-score"><b>${x.match_score}/100</b><small>${esc(x.match_level)} podudaranje</small></div></summary><div class="match-bar"><i style="width:${x.match_score}%"></i></div><span class="candidate-state ${status}">${statusText}</span>${x.supporting_evidence.length ? `<p><b>Podržavaju:</b> ${esc(x.supporting_evidence.join("; "))}</p>` : ""}${citations ? `<div class="evidence-citations">${citations}</div>` : ""}${x.contradicting_evidence.length ? `<p><b>Ne uklapa se:</b> ${esc(x.contradicting_evidence.join("; "))}</p>` : ""}${x.missing_information.length ? `<p><b>Potrebno proveriti:</b> ${esc(x.missing_information.join("; "))}</p>` : ""}${x.doctor_note ? `<p><b>Napomena lekara:</b> ${esc(x.doctor_note)}</p>` : ""}${x.red_flag ? '<span class="badge warn">Ne propustiti / razmotriti isključivanje</span>' : ""}${status === "pending" ? `<div class="candidate-review"><input class="doctor-note" data-candidate="${x.id}" placeholder="Opciona napomena lekara"><label><input type="checkbox" class="add-to-scribe" data-candidate="${x.id}"> Dodaj potvrđenu sugestiju u najnoviji AI nacrt pregleda</label><div><button class="button primary candidate-action" data-id="${x.id}" data-status="accepted">Potvrdi za razmatranje</button><button class="button secondary candidate-action" data-id="${x.id}" data-status="dismissed">Odbaci sugestiju</button></div></div>` : ""}${x.reviewed_by ? `<small>Pregledao: ${esc(x.reviewed_by)} · ${new Date(x.reviewed_at).toLocaleString("sr-Latn-RS")}</small>` : ""}</details>`;
 }
 function renderDifferential(d) {
   activeDifferentialAnalysis = d;
@@ -2036,6 +2080,18 @@ async function loadSetupBanner() {
       items.push(
         '<li><b>Unesite naziv ordinacije</b> — trenutno stoji „Demo Clinic“ (pojavljuje se i na PDF izveštajima). <button class="button secondary rename-org">Promeni naziv</button></li>',
       );
+    if (!c.https_enabled)
+      items.push(
+        '<li><b>HTTPS nije potvrđen</b> — ako je ovo produkciona instalacija dostupna van jednog računara, uključite TLS (CLINIC_TLS=1, videti start.sh) pre nego što osoblje unosi podatke pacijenata.</li>',
+      );
+    if (!c.production_mode)
+      items.push(
+        '<li><b>Sistem nije u produkcionom režimu</b> — CLINIC_ENV nije postavljen na "production". Demo/razvojni režim je namenjen isprobavanju, ne stvarnom radu sa pacijentima.</li>',
+      );
+    if (!c.encryption_key_externally_managed)
+      items.push(
+        '<li><b>Ključ za enkripciju nije eksterno podešen</b> — sistem koristi automatski generisan ključ. Za produkciju podesite CLINIC_ENCRYPTION_KEY ili CLINIC_ENCRYPTION_KEY_COMMAND iz sopstvenog upravljača tajnama.</li>',
+      );
     el.classList.remove("hidden");
     el.innerHTML = `<div class="setup-head">Podesite ordinaciju (${items.length} ${items.length === 1 ? "korak" : "koraka"} do kraja)</div><ul>${items.join("")}</ul>`;
     const rb = el.querySelector(".rename-org");
@@ -2064,7 +2120,7 @@ async function downloadZip(url, filename, btn) {
   btn.textContent = "Priprema…";
   try {
     const r = await fetch(url, {
-      headers: { Authorization: `Bearer ${sessionToken}` },
+      credentials: "same-origin",
     });
     if (!r.ok) throw Error((await r.json()).detail || "Izvoz nije uspeo");
     const blob = await r.blob(),

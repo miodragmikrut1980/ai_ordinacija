@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
-from .deps import current_portal_account
+from .csrf import CSRF_COOKIE_NAME, new_csrf_token
+from .deps import PORTAL_SESSION_COOKIE_NAME, current_portal_account, extract_session_token
 from .models import (
     AppointmentCreate, ConsentAccept, PortalAccountCreate, PortalAppointmentRequest,
     PortalChangePassword, PortalLoginRequest, PortalMessageCreate, QuestionnaireSubmit,
@@ -36,10 +37,25 @@ def _public_account(a) -> dict:
     return {"id": a.id, "patient_id": a.patient_id, "username": a.username, "must_change_password": a.must_change_password}
 
 
+def _set_portal_session_cookies(response: Response, request: Request, token: str) -> None:
+    """Same double-submit CSRF pattern as the staff app -- see
+    auth.py:_set_session_cookies and csrf.py. A different cookie name
+    (portal_session) keeps this from ever being confused with a staff
+    session cookie by the browser or by deps.py."""
+    secure = request.url.scheme == 'https'
+    response.set_cookie(PORTAL_SESSION_COOKIE_NAME, token, httponly=True, secure=secure, samesite='strict', max_age=PORTAL_SESSION_MINUTES * 60, path='/')
+    response.set_cookie(CSRF_COOKIE_NAME, new_csrf_token(), httponly=False, secure=secure, samesite='strict', max_age=PORTAL_SESSION_MINUTES * 60, path='/')
+
+
+def _clear_portal_session_cookies(response: Response) -> None:
+    response.delete_cookie(PORTAL_SESSION_COOKIE_NAME, path='/')
+    response.delete_cookie(CSRF_COOKIE_NAME, path='/')
+
+
 # -- autentifikacija -------------------------------------------------------------
 
 @router.post('/api/portal/auth/login')
-def portal_login(payload: PortalLoginRequest):
+def portal_login(payload: PortalLoginRequest, request: Request, response: Response):
     locked, retry_after = store.is_locked_out(payload.organization, payload.username, realm='portal')
     if locked:
         raise HTTPException(429, f'Too many failed login attempts. Try again in {retry_after} seconds.', headers={'Retry-After': str(retry_after)})
@@ -49,6 +65,7 @@ def portal_login(payload: PortalLoginRequest):
         raise HTTPException(401, 'Invalid clinic, username or password')
     token, _ = store.create_portal_session(account.id, PORTAL_SESSION_MINUTES)
     store.audit_portal(account, 'login', 'portal_session')
+    _set_portal_session_cookies(response, request, token)
     return {'token': token, 'expires_in_minutes': PORTAL_SESSION_MINUTES, 'account': _public_account(account)}
 
 
@@ -58,13 +75,15 @@ def portal_me(account=Depends(current_portal_account)):
 
 
 @router.post('/api/portal/auth/logout', status_code=204)
-def portal_logout(authorization: str | None = Header(default=None), account=Depends(current_portal_account)):
-    store.delete_portal_session(authorization.split(' ', 1)[1])
+def portal_logout(request: Request, response: Response, authorization: str | None = Header(default=None), account=Depends(current_portal_account)):
+    token, _ = extract_session_token(request, authorization, PORTAL_SESSION_COOKIE_NAME)
+    store.delete_portal_session(token)
     store.audit_portal(account, 'logout', 'portal_session')
+    _clear_portal_session_cookies(response)
 
 
 @router.post('/api/portal/auth/change-password', status_code=204)
-def portal_change_password(payload: PortalChangePassword, account=Depends(current_portal_account)):
+def portal_change_password(payload: PortalChangePassword, account=Depends(current_portal_account), response: Response = None):
     full = store.get_portal_account(account.id)
     row_ok = store.authenticate_portal(
         store.organization_by_id(account.organization_id).slug, account.username, payload.current_password,
@@ -73,6 +92,8 @@ def portal_change_password(payload: PortalChangePassword, account=Depends(curren
         raise HTTPException(401, 'Current password is incorrect')
     store.portal_change_password(account.id, payload.new_password)
     store.audit_portal(account, 'change_password', 'portal_account', account.id)
+    if response is not None:
+        _clear_portal_session_cookies(response)
 
 
 # -- pristanak za obradu podataka -------------------------------------------------------------
