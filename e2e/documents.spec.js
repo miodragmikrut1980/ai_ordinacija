@@ -20,7 +20,7 @@ async function createAndOpenPatient(page) {
   await expect(page.locator('#patientDialog')).toBeVisible();
   const name = uniqueName('E2E Dokument Pacijent');
   await page.locator('#patientForm [name=full_name]').fill(name);
-  await page.locator('#patientForm button').click();
+  await page.locator('#patientForm button:not(.close)').click();
   await expect(page.locator('#patientDialog')).toBeHidden();
   await expect(page.locator('#patientName')).toHaveText(name, { timeout: 10_000 });
   return name;

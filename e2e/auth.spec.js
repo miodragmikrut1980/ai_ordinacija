@@ -42,12 +42,14 @@ test.describe('Višefaktorska prijava (MFA)', () => {
     const password = 'MfaTestLoz123';
 
     await login(page, { username: 'admin', password: 'admin123' });
+    await page.locator('button.nav-item[data-view="users"]').click();
+    await expect(page.locator('#usersView')).toBeVisible();
     await page.locator('#newUserBtn').click();
     await page.locator('#userForm [name=username]').fill(username);
     await page.locator('#userForm [name=full_name]').fill('MFA E2E Test');
     await page.locator('#userForm [name=role]').selectOption('doctor');
     await page.locator('#userForm [name=password]').fill(password);
-    await page.locator('#userForm button[type=submit], #userForm button:not([type])').first().click();
+    await page.locator('#userForm button:not(.close)').click();
     await expect(page.locator('#toast')).toBeVisible();
     await page.locator('#logoutBtn').click();
     await expect(page.locator('#loginOverlay')).toBeVisible();
@@ -59,7 +61,7 @@ test.describe('Višefaktorska prijava (MFA)', () => {
       const newPassword = 'MfaTestNovaLoz456';
       await page.locator('#passwordForm [name=current_password]').fill(password);
       await page.locator('#passwordForm [name=new_password]').fill(newPassword);
-      await page.locator('#passwordForm button').click();
+      await page.locator('#passwordForm button:not(.close)').click();
       await login(page, { username, password: newPassword });
     }
 
