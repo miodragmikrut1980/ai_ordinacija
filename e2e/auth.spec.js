@@ -40,6 +40,17 @@ test.describe('Višefaktorska prijava (MFA)', () => {
   test('podešavanje, prijava sa kodom, i isključivanje', async ({ page }) => {
     const username = `mfa-e2e-${Date.now()}`;
     const password = 'MfaTestLoz123';
+    const newPassword = 'MfaTestNovaLoz456';
+
+    // Surfaces the real reason for any future failure here (e.g. a 403
+    // from the must_change_password gate in deps.py) directly in the test
+    // output instead of only the downstream symptom ("box never appeared"),
+    // which took two extra round-trips to diagnose the first time.
+    page.on('response', (res) => {
+      if (res.url().includes('/api/auth/mfa/') && !res.ok()) {
+        console.log(`[diagnostic] ${res.request().method()} ${res.url()} -> ${res.status()}`);
+      }
+    });
 
     await login(page, { username: 'admin', password: 'admin123' });
     await page.locator('button.nav-item[data-view="users"]').click();
@@ -54,16 +65,27 @@ test.describe('Višefaktorska prijava (MFA)', () => {
     await page.locator('#logoutBtn').click();
     await expect(page.locator('#loginOverlay')).toBeVisible();
 
-    // New user must set a real password before anything else (see
-    // must_change_password in deps.py) -- log in once to trigger that flow.
-    await login(page, { username, password });
-    if (await page.locator('#passwordDialog').isVisible().catch(() => false)) {
-      const newPassword = 'MfaTestNovaLoz456';
-      await page.locator('#passwordForm [name=current_password]').fill(password);
-      await page.locator('#passwordForm [name=new_password]').fill(newPassword);
-      await page.locator('#passwordForm button:not(.close)').click();
-      await login(page, { username, password: newPassword });
-    }
+    // A freshly admin-created account always has must_change_password set
+    // server-side (see UserCreate/create_user), and the login form now
+    // shows the password dialog immediately in that case rather than
+    // proceeding to the dashboard (see app.js's loginForm submit handler)
+    // -- so this step deliberately does NOT use the shared login() helper,
+    // whose success signal (#loginOverlay hidden) does not apply here: the
+    // overlay stays up behind the password dialog until the password is
+    // actually changed.
+    await page.locator('#loginForm [name=organization]').fill('demo-clinic');
+    await page.locator('#loginForm [name=username]').fill(username);
+    await page.locator('#loginForm [name=password]').fill(password);
+    await page.locator('#loginForm button').click();
+    await expect(page.locator('#passwordDialog')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#passwordForm [name=current_password]').fill(password);
+    await page.locator('#passwordForm [name=new_password]').fill(newPassword);
+    await page.locator('#passwordForm button:not(.close)').click();
+    // Changing password revokes all sessions server-side and the app logs
+    // the user out client-side too (see passwordForm's submit handler) --
+    // a fresh login with the new password is required.
+    await expect(page.locator('#loginOverlay')).toBeVisible({ timeout: 10_000 });
+    await login(page, { username, password: newPassword });
 
     // Set up MFA.
     await page.locator('#mfaBtn').click();
@@ -82,7 +104,7 @@ test.describe('Višefaktorska prijava (MFA)', () => {
     await page.goto('/');
     await page.locator('#loginForm [name=organization]').fill('demo-clinic');
     await page.locator('#loginForm [name=username]').fill(username);
-    await page.locator('#loginForm [name=password]').fill('MfaTestNovaLoz456');
+    await page.locator('#loginForm [name=password]').fill(newPassword);
     await page.locator('#loginForm button').click();
     await expect(page.locator('#mfaLoginField')).toBeVisible({ timeout: 5_000 });
     const loginCode = authenticator.generate(secret);

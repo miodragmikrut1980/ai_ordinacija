@@ -1443,6 +1443,18 @@ $("#loginForm").onsubmit = async (e) => {
     }
     currentUser = r.user;
     applyUser();
+    if (currentUser.must_change_password) {
+      // Mirrors init()'s post-reload check: a freshly admin-created
+      // account (or any account with a pending forced password reset)
+      // must not proceed to the dashboard first -- every non-whitelisted
+      // API call would silently 403 (see deps.py's must_change_password
+      // gate) until the password is actually changed, leaving the user
+      // stuck looking at a half-loaded, broken-seeming app with no clear
+      // explanation why.
+      $("#loginHint").textContent = "Pre pristupa podacima ordinacije morate postaviti novu lozinku.";
+      $("#passwordDialog").showModal();
+      return;
+    }
     $("#loginOverlay").classList.add("hidden");
     await loadPatients();
     await loadDashboard();
